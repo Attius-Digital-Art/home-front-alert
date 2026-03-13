@@ -11,9 +11,11 @@
     <androidx.constraintlayout.widget.ConstraintLayout
         android:id="@+id/header"
         android:layout_width="0dp"
-        android:layout_height="wrap_content"
-        android:paddingHorizontal="12dp"
-        android:paddingVertical="12dp"
+        android:layout_height="64dp"
+        android:paddingStart="12dp"
+        android:paddingEnd="20dp"
+        android:clipToPadding="false"
+        android:clipChildren="false"
         app:layout_constraintTop_toTopOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent">
@@ -23,12 +25,13 @@
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:text="@string/monitoring_title"
-            android:textSize="18sp"
+            android:textSize="17sp"
             android:textStyle="bold"
             android:textColor="#FFFFFF"
             android:alpha="0.9"
             android:ellipsize="end"
             android:singleLine="true"
+            android:layout_marginStart="16dp"
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintEnd_toStartOf="@id/layoutBadges"
             app:layout_constraintTop_toTopOf="parent"
@@ -71,17 +74,16 @@
                 android:background="@drawable/small_badge_bg"
                 android:backgroundTint="#60FF5252"
                 android:paddingHorizontal="4dp"
-                android:paddingVertical="1dp"
-                android:visibility="visible" />
+                android:paddingVertical="1dp" />
         </LinearLayout>
 
         <ImageButton
             android:id="@+id/btnHelp"
-            android:layout_width="48dp"
-            android:layout_height="48dp"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
             android:src="@drawable/ic_info"
             android:background="?attr/selectableItemBackgroundBorderless"
-            android:padding="12dp"
+            android:padding="10dp"
             android:scaleType="fitCenter"
             app:layout_constraintEnd_toStartOf="@id/btnSettings"
             app:layout_constraintTop_toTopOf="parent"
@@ -89,13 +91,12 @@
 
         <ImageButton
             android:id="@+id/btnSettings"
-            android:layout_width="48dp"
-            android:layout_height="48dp"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
             android:src="@drawable/ic_settings"
             android:background="?attr/selectableItemBackgroundBorderless"
-            android:padding="12dp"
+            android:padding="10dp"
             android:scaleType="fitCenter"
-            android:layout_marginEnd="8dp"
             app:layout_constraintEnd_toEndOf="parent"
             app:layout_constraintTop_toTopOf="parent"
             app:layout_constraintBottom_toBottomOf="parent" />
@@ -213,18 +214,18 @@
                             android:orientation="horizontal"
                             android:layout_marginTop="8dp"
                             android:gravity="center_vertical">
+                            <ImageView
+                                android:id="@+id/ivLocationStatus"
+                                android:layout_width="18dp"
+                                android:layout_height="18dp"
+                                android:src="@drawable/ic_gps_antenna"
+                                android:tint="#34C759"
+                                android:alpha="0.8" />
                             <TextView
                                 android:id="@+id/tvLocationBadge"
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
-                                android:text="GPS"
-                                android:textSize="9sp"
-                                android:textColor="#000000"
-                                android:textStyle="bold"
-                                android:background="@drawable/bg_badge"
-                                android:backgroundTint="#FFD700"
-                                android:paddingHorizontal="6dp"
-                                android:paddingVertical="2dp" />
+                                android:visibility="gone" />
                             <TextView
                                 android:id="@+id/tvLocationZone"
                                 android:layout_width="wrap_content"

@@ -48,25 +48,14 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
                         alertedZones.add(citiesArray.getString(i))
                     }
 
-                    // 2. Retrieve the user's GPS Location or Manual Configured UI Setting
+                    // 2. Retrieve location using centralized logic
                     val locationManager = AppLocationManager(applicationContext)
-                    var currentLocation = locationManager.getCurrentLocationSync()
-                    
-                    if (currentLocation == null) {
-                        val lat = locationManager.getManualLat()?.toDoubleOrNull()
-                        val lng = locationManager.getManualLng()?.toDoubleOrNull()
-                        if (lat != null && lng != null) {
-                            currentLocation = Pair(lat, lng)
-                            Log.i("HomeFrontAlerts", "FCM location fallback to manual.")
-                        }
-                    }
+                    val res = locationManager.resolveCurrentLocation()
+                    val userLat = res.lat
+                    val userLng = res.lng
 
-                    if (currentLocation != null) {
-                        val userLat = currentLocation.first
-                        val userLng = currentLocation.second
-
-                        // 3. Let our Cartography module calculate distances to every active polygon
-                        val distances = distanceCalculator.calculateDistancesToAlerts(userLat, userLng, alertedZones)
+                    // 3. Let our Cartography module calculate distances to every active polygon
+                    val distances = distanceCalculator.calculateDistancesToAlerts(userLat, userLng, alertedZones)
 
                         Log.d("HomeFrontAlerts", "Calculated Distances KM: $distances")
 
@@ -86,9 +75,6 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
                         } else {
                             Log.d("HomeFrontAlerts", "Distances array empty. Zones were not found in cache.")
                         }
-                    } else {
-                        Log.e("HomeFrontAlerts", "Location is null, cannot calculate distances.")
-                    }
 
                 } catch (e: Exception) {
                     Log.e("HomeFrontAlerts", "Failed to parse cities payload", e)

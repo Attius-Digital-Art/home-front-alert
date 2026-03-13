@@ -51,6 +51,7 @@ class SettingsActivity : AppCompatActivity() {
         switchLiveGps.isChecked = locationManager.isUsingLiveGps()
         switchLiveGps.setOnCheckedChangeListener { _, isChecked ->
             locationManager.setUsingLiveGps(isChecked)
+            refreshSettingsUI()
             val msg = if (isChecked) getString(R.string.mode_gps) else getString(R.string.mode_fixed)
             Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
         }
@@ -68,11 +69,14 @@ class SettingsActivity : AppCompatActivity() {
             // If user selects a zone, we assume they want to use the FIXED mode
             locationManager.setUsingLiveGps(false)
             switchLiveGps.isChecked = false
+            refreshSettingsUI()
             
             Toast.makeText(this, "${getString(R.string.set_home_zone)}: $selection", Toast.LENGTH_SHORT).show()
             val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
             imm.hideSoftInputFromWindow(autoSearch.windowToken, 0)
         }
+
+        refreshSettingsUI() // Initial state
 
         // 3. Volume and Sound Test
         val seekVolume = findViewById<SeekBar>(R.id.seekVolume)
@@ -184,6 +188,8 @@ class SettingsActivity : AppCompatActivity() {
         val tvRawHistory = findViewById<TextView>(R.id.tvRawHistory)
         val tvEmptySample = findViewById<TextView>(R.id.tvEmptySample)
         val tvResolvedZone = findViewById<TextView>(R.id.tvResolvedZone)
+        val tvLastSync = findViewById<TextView>(R.id.tvLastSync)
+        
         val logHandler = Handler(Looper.getMainLooper())
         val logUpdater = object : Runnable {
             override fun run() {
@@ -191,6 +197,14 @@ class SettingsActivity : AppCompatActivity() {
                 tvRawHistory?.text = sharedPrefs.getString("raw_alert_history", "...")
                 tvEmptySample?.text = sharedPrefs.getString("empty_sample_log", getString(R.string.no_baseline))
                 
+                val lastSuccess = sharedPrefs.getLong("shield_last_success_ms", 0)
+                if (lastSuccess > 0) {
+                    val diff = (System.currentTimeMillis() - lastSuccess) / 1000
+                    tvLastSync?.text = "Last Success: ${diff}s ago"
+                } else {
+                    tvLastSync?.text = "Last Success: Never"
+                }
+
                 // Run location resolution in a background thread
                 kotlin.concurrent.thread(start = true) {
                     val lm = getSystemService(Context.LOCATION_SERVICE) as android.location.LocationManager
@@ -201,23 +215,38 @@ class SettingsActivity : AppCompatActivity() {
                     val res = locationManager.resolveCurrentLocation()
                     val localizedZone = distanceCalculator.getLocalizedName(res.zoneNameHe)
                     
-                    val statusText = if (!locationEnabled && locationManager.isUsingLiveGps()) {
-                        "⚠️ GPS is OFF in System Settings"
-                    } else {
-                        when(res.source) {
-                            "GPS" -> getString(R.string.status_gps_locked, localizedZone)
-                            "SAVED" -> if (res.isFallback) getString(R.string.status_gps_searching, localizedZone) else getString(R.string.status_saved_zone, localizedZone)
-                            else -> getString(R.string.status_default_zone, localizedZone)
+                    val hasLocationPerm = ContextCompat.checkSelfPermission(this@SettingsActivity, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+                    
+                    val statusText = when(res.source) {
+                        "GPS" -> getString(R.string.status_gps_locked, localizedZone)
+                        "SAVED" -> {
+                            if (res.isFallback && res.activeMode == LocationTrackingMode.GPS_LIVE) 
+                                getString(R.string.status_gps_searching, localizedZone) 
+                            else 
+                                getString(R.string.status_saved_zone, localizedZone)
                         }
+                        else -> getString(R.string.status_default_zone, localizedZone)
                     }
 
                     Handler(Looper.getMainLooper()).post {
-                        tvResolvedZone?.text = statusText
-                        if (!locationEnabled && locationManager.isUsingLiveGps()) {
-                            tvResolvedZone?.setTextColor(android.graphics.Color.RED)
+                        var finalStatusText = statusText
+                        var textColor = android.graphics.Color.parseColor("#FFEB3B") // Yellow
+
+                        if (!hasLocationPerm) {
+                            finalStatusText = "⚠️ Location Permission Denied\n(Click to fix in Settings)"
+                            textColor = android.graphics.Color.parseColor("#FF5252") // Reddish
+                            tvResolvedZone?.setOnClickListener { openAppSettings() }
+                        } else if (!locationEnabled && locationManager.isUsingLiveGps()) {
+                            finalStatusText = "⚠️ GPS is OFF in System Settings\n(Click to fix)\n$statusText"
+                            textColor = android.graphics.Color.RED
+                            tvResolvedZone?.setOnClickListener { openLocationSettings() }
                         } else {
-                            tvResolvedZone?.setTextColor(android.graphics.Color.parseColor("#FFEB3B")) // Yellow
+                            tvResolvedZone?.setOnClickListener(null)
                         }
+                        
+                        tvResolvedZone?.text = finalStatusText
+                        tvResolvedZone?.setTextColor(textColor)
+                        refreshSettingsUI() // Keep UI synced
                     }
                 }
                 
@@ -284,5 +313,35 @@ class SettingsActivity : AppCompatActivity() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) perms.add(Manifest.permission.POST_NOTIFICATIONS)
         val needed = perms.filter { ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED }
         if (needed.isNotEmpty()) ActivityCompat.requestPermissions(this, needed.toTypedArray(), 100)
+    }
+
+    private fun openAppSettings() {
+        val intent = Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+        val uri = android.net.Uri.fromParts("package", packageName, null)
+        intent.data = uri
+        startActivity(intent)
+    }
+
+    private fun openLocationSettings() {
+        startActivity(Intent(android.provider.Settings.ACTION_LOCATION_SOURCE_SETTINGS))
+    }
+
+    private fun refreshSettingsUI() {
+        val isGpsActive = locationManager.isUsingLiveGps()
+        val autoSearch = findViewById<AutoCompleteTextView>(R.id.autoCompleteZoneSearch)
+        val cardManual = findViewById<androidx.cardview.widget.CardView>(R.id.cardManualZone)
+        val ivManual = findViewById<ImageView>(R.id.ivManualIcon)
+        
+        if (isGpsActive) {
+            autoSearch.isEnabled = false
+            autoSearch.alpha = 0.4f
+            cardManual.alpha = 0.4f
+            ivManual.alpha = 0.3f
+        } else {
+            autoSearch.isEnabled = true
+            autoSearch.alpha = 1.0f
+            cardManual.alpha = 1.0f
+            ivManual.alpha = 1.0f
+        }
     }
 }

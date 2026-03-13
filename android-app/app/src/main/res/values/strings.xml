@@ -10,6 +10,7 @@
     <string name="monitoring_for">Monitoring for</string>
     <string name="active_for">Active for</string>
     <string name="last_detected_threat">LAST DETECTED THREAT</string>
+    <string name="just_now">Just Now</string>
     <string name="detected_ago">Detected %s ago</string>
     <string name="distance">Distance: %s km</string>
     <string name="remote_alert">Remote / Unknown</string>
