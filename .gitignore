@@ -1,0 +1,62 @@
+# ===== KeshevAdom Root Ignored Patterns =====
+
+# ===== SECURITY: SECRETS & KEYS =====
+# Release keystore - NEVER commit this
+*.jks
+*.keystore
+*.p12
+*.pfx
+
+# Environment and secret files
+.env
+.env.*
+secrets.properties
+keystore.properties
+signing.properties
+local.properties
+serviceAccountKey.json
+
+# Google Cloud service accounts
+*-service-account*.json
+*credentials*.json
+gcloud_key*.json
+
+# ===== ANDROID BUILD =====
+android-app/.gradle/
+android-app/local.properties
+android-app/build/
+android-app/app/build/
+android-app/**/*.apk
+android-app/**/*.aab
+android-app/**/*.ap_
+
+# Temp build logs & artifacts
+*.txt
+*.log
+!RELEASE_NOTES.md
+!README.md
+firebase-debug.log
+proxy-microsite/firebase-debug.log
+
+# ===== NODE / BACKEND =====
+node_modules/
+backend/node_modules/
+dist/
+.npm
+
+# ===== IDE =====
+.idea/
+*.iml
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# ===== GOOGLE CLOUD SDK / TEMP =====
+override_policy.yaml
+login_url.txt
+setup_android.ps1
+temp_restore/
+pikud-alert*.zip
+test-app/

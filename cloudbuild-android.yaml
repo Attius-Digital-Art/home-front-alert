@@ -1,0 +1,17 @@
+steps:
+  # 1. Build the APK using a community Android builder
+  - name: 'gcr.io/cloud-builders/gradle'
+    args: ['assembleRelease']
+    dir: 'android-app'
+
+  # 2. Upload the APK to GCS (optional but good for history)
+  # - name: 'gcr.io/cloud-builders/gsutil'
+  #   args: ['cp', 'android-app/app/build/outputs/apk/release/*.apk', 'gs://$PROJECT_ID-build-artifacts/android/']
+
+artifacts:
+  objects:
+    location: 'gs://$PROJECT_ID-build-artifacts/android/'
+    paths: ['android-app/app/build/outputs/apk/release/*.apk', 'android-app/app/build/outputs/bundle/release/*.aab']
+
+options:
+  machineType: 'E2_HIGHCPU_8' # Android builds are CPU intensive

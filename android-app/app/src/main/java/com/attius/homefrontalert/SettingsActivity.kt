@@ -1,0 +1,288 @@
+package com.attius.homefrontalert
+
+import android.Manifest
+import androidx.appcompat.app.AppCompatActivity
+import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
+import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import android.widget.*
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
+import java.net.HttpURLConnection
+import java.net.URL
+import kotlin.concurrent.thread
+
+class SettingsActivity : AppCompatActivity() {
+
+    override fun attachBaseContext(newBase: Context) {
+        super.attachBaseContext(LocaleHelper.onAttach(newBase))
+    }
+
+    private lateinit var locationManager: AppLocationManager
+    private lateinit var distanceCalculator: ZoneDistanceCalculator
+    private lateinit var sharedPrefs: android.content.SharedPreferences
+    private lateinit var toneGenerator: DynamicToneGenerator
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        
+        val isRtl = LocaleHelper.getLanguage(this) == "iw"
+        window.decorView.layoutDirection = if (isRtl) android.view.View.LAYOUT_DIRECTION_RTL else android.view.View.LAYOUT_DIRECTION_LTR
+
+        setContentView(R.layout.activity_settings)
+
+        locationManager = AppLocationManager(this)
+        distanceCalculator = ZoneDistanceCalculator(this)
+        toneGenerator = DynamicToneGenerator(this)
+        sharedPrefs = getSharedPreferences("HomeFrontAlertsPrefs", Context.MODE_PRIVATE)
+
+        requestCriticalPermissions()
+
+        findViewById<ImageButton>(R.id.btnBack).setOnClickListener {
+            finish()
+        }
+
+        // 1. Location Tracking Mode
+        val switchLiveGps = findViewById<Switch>(R.id.switchLiveGps)
+        switchLiveGps.isChecked = locationManager.isUsingLiveGps()
+        switchLiveGps.setOnCheckedChangeListener { _, isChecked ->
+            locationManager.setUsingLiveGps(isChecked)
+            val msg = if (isChecked) getString(R.string.mode_gps) else getString(R.string.mode_fixed)
+            Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
+        }
+
+        // 2. Zone Search (Saved Zone)
+        val autoSearch = findViewById<AutoCompleteTextView>(R.id.autoCompleteZoneSearch)
+        val allZones = distanceCalculator.getAllZones()
+        val adapter = ArrayAdapter(this, android.R.layout.simple_dropdown_item_1line, allZones)
+        autoSearch.setAdapter(adapter)
+
+        autoSearch.setOnItemClickListener { parent, _, position, _ ->
+            val selection = parent.getItemAtPosition(position) as String
+            locationManager.setSavedZoneHe(distanceCalculator.getZoneCoordinates(selection)?.nameHe ?: selection)
+            
+            // If user selects a zone, we assume they want to use the FIXED mode
+            locationManager.setUsingLiveGps(false)
+            switchLiveGps.isChecked = false
+            
+            Toast.makeText(this, "${getString(R.string.set_home_zone)}: $selection", Toast.LENGTH_SHORT).show()
+            val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
+            imm.hideSoftInputFromWindow(autoSearch.windowToken, 0)
+        }
+
+        // 3. Volume and Sound Test
+        val seekVolume = findViewById<SeekBar>(R.id.seekVolume)
+        val btnTestSound = findViewById<Button>(R.id.btnTestSound)
+        
+        val currentVol = sharedPrefs.getFloat("alert_volume", 1.0f)
+        seekVolume.progress = (currentVol * 100).toInt()
+        
+        seekVolume.setOnSeekBarChangeListener(object: SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                if (fromUser) {
+                    val vol = progress / 100f
+                    sharedPrefs.edit().putFloat("alert_volume", vol).apply()
+                    toneGenerator.updateLiveVolume(vol)
+                }
+            }
+            override fun onStartTrackingTouch(seekBar: SeekBar?) {}
+            override fun onStopTrackingTouch(seekBar: SeekBar?) {}
+        })
+
+        btnTestSound.setOnClickListener {
+            val volume = sharedPrefs.getFloat("alert_volume", 1.0f)
+            toneGenerator.playTonesForDistances(listOf(5.0), volume)
+        }
+
+        // 4. Connectivity Shield Toggle
+        val switchShieldActive = findViewById<Switch>(R.id.switchHybridMode)
+        switchShieldActive.isChecked = sharedPrefs.getBoolean("shield_active", false)
+        switchShieldActive.setOnCheckedChangeListener { _, isChecked ->
+            if (isChecked) {
+                val hasLocation = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+                if (!hasLocation) {
+                    Toast.makeText(this, "Location permission required for Direct Shield", Toast.LENGTH_LONG).show()
+                    switchShieldActive.isChecked = false
+                    requestCriticalPermissions()
+                    return@setOnCheckedChangeListener
+                }
+                
+                sharedPrefs.edit().putBoolean("shield_active", true).apply()
+                val intent = Intent(this, LocalPollingService::class.java)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    startForegroundService(intent)
+                } else {
+                    startService(intent)
+                }
+            } else {
+                sharedPrefs.edit().putBoolean("shield_active", false).apply()
+                stopService(Intent(this, LocalPollingService::class.java))
+            }
+        }
+
+        // 5. Diagnostics
+        val btnCheckConnection = findViewById<Button>(R.id.btnCheckConnection)
+        val tvBackendStatus = findViewById<TextView>(R.id.tvBackendStatus)
+        btnCheckConnection.setOnClickListener {
+            tvBackendStatus.text = "Checking integrity..."
+            thread {
+                val result = runUnifiedCheck()
+                Handler(Looper.getMainLooper()).post {
+                    tvBackendStatus.text = result
+                    tvBackendStatus.setTextColor(android.graphics.Color.LTGRAY)
+                }
+            }
+        }
+
+        // 6. Advanced Section
+        val switchShowAdvanced = findViewById<Switch>(R.id.switchShowAdvanced)
+        val layoutAdvancedSection = findViewById<LinearLayout>(R.id.layoutAdvancedSection)
+        val isAdvancedVisible = sharedPrefs.getBoolean("show_advanced_settings", false)
+        switchShowAdvanced.isChecked = isAdvancedVisible
+        layoutAdvancedSection.visibility = if (isAdvancedVisible) android.view.View.VISIBLE else android.view.View.GONE
+        switchShowAdvanced.setOnCheckedChangeListener { _, isChecked ->
+            layoutAdvancedSection.visibility = if (isChecked) android.view.View.VISIBLE else android.view.View.GONE
+            sharedPrefs.edit().putBoolean("show_advanced_settings", isChecked).apply()
+        }
+
+        val seekDistTest = findViewById<SeekBar>(R.id.seekDistTest)
+        val tvDistTestLabel = findViewById<TextView>(R.id.tvDistTestLabel)
+        val btnTestDistSound = findViewById<Button>(R.id.btnTestDistSound)
+        val btnTestCaution = findViewById<Button>(R.id.btnTestCaution)
+        val btnTestCalm = findViewById<Button>(R.id.btnTestCalm)
+
+        seekDistTest.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                tvDistTestLabel.text = "Simulate Distance: ${progress}km"
+            }
+            override fun onStartTrackingTouch(seekBar: SeekBar?) {}
+            override fun onStopTrackingTouch(seekBar: SeekBar?) {}
+        })
+
+        btnTestDistSound.setOnClickListener {
+            val volume = sharedPrefs.getFloat("alert_volume", 1.0f)
+            val dist = seekDistTest.progress.toDouble()
+            toneGenerator.playTonesForDistances(listOf(dist), volume, AlertType.URGENT)
+        }
+
+        btnTestCaution.setOnClickListener {
+            val volume = sharedPrefs.getFloat("alert_volume", 1.0f)
+            toneGenerator.playTonesForDistances(emptyList(), volume, AlertType.CAUTION)
+        }
+
+        btnTestCalm.setOnClickListener {
+            val volume = sharedPrefs.getFloat("alert_volume", 1.0f)
+            toneGenerator.playTonesForDistances(emptyList(), volume, AlertType.CALM)
+        }
+
+        // 7. Dynamic UI Refresh (Zone Status)
+        val tvShieldLog = findViewById<TextView>(R.id.tvHybridLog)
+        val tvRawHistory = findViewById<TextView>(R.id.tvRawHistory)
+        val tvEmptySample = findViewById<TextView>(R.id.tvEmptySample)
+        val tvResolvedZone = findViewById<TextView>(R.id.tvResolvedZone)
+        val logHandler = Handler(Looper.getMainLooper())
+        val logUpdater = object : Runnable {
+            override fun run() {
+                tvShieldLog?.text = sharedPrefs.getString("shield_last_log", "...")
+                tvRawHistory?.text = sharedPrefs.getString("raw_alert_history", "...")
+                tvEmptySample?.text = sharedPrefs.getString("empty_sample_log", getString(R.string.no_baseline))
+                
+                // Run location resolution in a background thread
+                kotlin.concurrent.thread(start = true) {
+                    val lm = getSystemService(Context.LOCATION_SERVICE) as android.location.LocationManager
+                    val isGpsEnabled = lm.isProviderEnabled(android.location.LocationManager.GPS_PROVIDER)
+                    val isNetworkEnabled = lm.isProviderEnabled(android.location.LocationManager.NETWORK_PROVIDER)
+                    val locationEnabled = isGpsEnabled || isNetworkEnabled
+
+                    val res = locationManager.resolveCurrentLocation()
+                    val localizedZone = distanceCalculator.getLocalizedName(res.zoneNameHe)
+                    
+                    val statusText = if (!locationEnabled && locationManager.isUsingLiveGps()) {
+                        "⚠️ GPS is OFF in System Settings"
+                    } else {
+                        when(res.source) {
+                            "GPS" -> getString(R.string.status_gps_locked, localizedZone)
+                            "SAVED" -> if (res.isFallback) getString(R.string.status_gps_searching, localizedZone) else getString(R.string.status_saved_zone, localizedZone)
+                            else -> getString(R.string.status_default_zone, localizedZone)
+                        }
+                    }
+
+                    Handler(Looper.getMainLooper()).post {
+                        tvResolvedZone?.text = statusText
+                        if (!locationEnabled && locationManager.isUsingLiveGps()) {
+                            tvResolvedZone?.setTextColor(android.graphics.Color.RED)
+                        } else {
+                            tvResolvedZone?.setTextColor(android.graphics.Color.parseColor("#FFEB3B")) // Yellow
+                        }
+                    }
+                }
+                
+                logHandler.postDelayed(this, 1500)
+            }
+        }
+        logHandler.post(logUpdater)
+
+        setupLanguageSwitch()
+    }
+
+    private fun runUnifiedCheck(): String {
+        val rootUrl = BuildConfig.BACKEND_URL
+        var backendResult = "Proxy: Checking..."
+        var hfcResult = "Direct HFC: Checking..."
+        try {
+            val url = URL("$rootUrl/health")
+            val conn = url.openConnection() as HttpURLConnection
+            conn.setRequestProperty("X-API-Key", BuildConfig.API_KEY)
+            conn.connectTimeout = 5000
+            backendResult = if (conn.responseCode == 200) "🟢 Proxy: Online" else "🔴 Proxy: Error ${conn.responseCode}"
+        } catch (e: Exception) { backendResult = "🔴 Proxy: Offline" }
+
+        try {
+            val url = URL("https://www.oref.org.il/WarningMessages/alert/Alerts.json")
+            val conn = url.openConnection() as HttpURLConnection
+            conn.setRequestProperty("User-Agent", "PikudHaoref/1.6 (iPhone; iOS 17.4; Scale/3.00)")
+            conn.setRequestProperty("Referer", "https://www.oref.org.il/")
+            conn.connectTimeout = 5000
+            hfcResult = if (conn.responseCode == 200 || conn.responseCode == 204) "🟢 Direct HFC: OK" else "🟡 Direct HFC: Blocked"
+        } catch (e: Exception) { hfcResult = "🔴 Direct HFC: Unavailable" }
+
+        return "$backendResult\n$hfcResult"
+    }
+
+    private fun setupLanguageSwitch() {
+        val rgLanguage = findViewById<RadioGroup>(R.id.rgLanguageSettings)
+        val rbHebrew = findViewById<RadioButton>(R.id.rbHebrewSettings)
+        val rbEnglish = findViewById<RadioButton>(R.id.rbEnglishSettings)
+        val currentLang = LocaleHelper.getLanguage(this)
+        if (currentLang == "iw" || currentLang == "he") rbHebrew.isChecked = true else rbEnglish.isChecked = true
+
+        rgLanguage.setOnCheckedChangeListener { group, checkedId ->
+            val selectedLang = if (checkedId == R.id.rbHebrewSettings) "iw" else "en"
+            if (selectedLang != LocaleHelper.getLanguage(this)) {
+                androidx.appcompat.app.AlertDialog.Builder(this)
+                    .setTitle(R.string.lang_change_title)
+                    .setMessage(R.string.lang_change_message)
+                    .setPositiveButton(R.string.lang_change_confirm) { _, _ ->
+                        LocaleHelper.setLocale(this, selectedLang)
+                        val intent = Intent(this, MainActivity::class.java).apply { flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK }
+                        startActivity(intent)
+                        startActivity(Intent(this, SettingsActivity::class.java))
+                        finish()
+                    }
+                    .setNegativeButton(R.string.cancel) { _, _ -> setupLanguageSwitch() }
+                    .show()
+            }
+        }
+    }
+
+    private fun requestCriticalPermissions() {
+        val perms = mutableListOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) perms.add(Manifest.permission.POST_NOTIFICATIONS)
+        val needed = perms.filter { ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED }
+        if (needed.isNotEmpty()) ActivityCompat.requestPermissions(this, needed.toTypedArray(), 100)
+    }
+}

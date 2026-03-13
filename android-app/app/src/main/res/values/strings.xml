@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">KeshevAdom - Home Front Alerts</string>
+    <string name="monitoring_title">KeshevAdom - Home Front Alerts</string>
+    <string name="current_status">CURRENT STATUS</string>
+    <string name="no_alerts">NO ALERTS</string>
+    <string name="critical_status">CRITICAL</string>
+    <string name="warning_status">WARNING</string>
+    <string name="threat_status">THREAT</string>
+    <string name="monitoring_for">Monitoring for</string>
+    <string name="active_for">Active for</string>
+    <string name="last_detected_threat">LAST DETECTED THREAT</string>
+    <string name="detected_ago">Detected %s ago</string>
+    <string name="distance">Distance: %s km</string>
+    <string name="remote_alert">Remote / Unknown</string>
+    <string name="settings_title">Home Front Control Panel</string>
+    <string name="default_museum_he">מוזיאון ישראל, ירושלים</string>
+    <string name="default_museum_en">The Israel Museum, Jerusalem</string>
+    <string name="location_mode_title">Location Identity</string>
+    <string name="mode_gps">Live Identity (GPS Tracking)</string>
+    <string name="mode_fixed">Fixed Identity (Saved Zone)</string>
+    <string name="status_gps_locked">GPS Verified: %s</string>
+    <string name="status_gps_searching">Searching GPS (Using: %s)</string>
+    <string name="status_saved_zone">Zone: %s</string>
+    <string name="status_default_zone">Default: %s</string>
+
+    <string name="connectivity_shield_title">Direct Connectivity Shield</string>
+    <string name="connectivity_shield_warning">WARNING: Connects directly to HFC/Backend for minimum latency. Drains more battery while active.</string>
+    <string name="diag_polling_log">DIAGNOSTIC POLLING LOG:</string>
+    <string name="diag_baseline">BASELINE (EMPTY SAMPLE):</string>
+    <string name="diag_anomalies">RECENT NON-EMPTY PACKETS:</string>
+    <string name="no_baseline">Waiting for baseline...</string>
+    <string name="waiting_service">Waiting for shield...</string>
+    <string name="scanning_packets">Scanning network...</string>
+
+    <string name="notif_critical">🚨 ALERT ACTIVE IN YOUR AREA!</string>
+    <string name="notif_warning">⚠️ Caution/Pre-warning active.</string>
+    <string name="notif_threat">🌍 Alerts active elsewhere in Israel.</string>
+    <string name="notif_ok">✅ NO ALERTS</string>
+    <string name="notif_title">KeshevAdom Status</string>
+
+    <string name="master_volume">Master Alert Volume</string>
+    <string name="current_zone">Current Zone: %s</string>
+    <string name="set_home_zone">Set Home Zone</string>
+    <string name="search_hint">Search City/Zone (e.g. Tel Aviv)</string>
+    <string name="search_subtext">Select a zone to use when GPS is inactive</string>
+
+    <string name="advanced_toggle">Developer Diagnostics</string>
+    <string name="simulate_dist">Simulate Distance: %s km</string>
+    <string name="tos_title">Terms and Conditions</string>
+    <string name="tos_agree">I AGREE AND UNDERSTAND</string>
+    <string name="tos_subtext">By clicking I Agree, you acknowledge that this app is not a replacement for official safety information.</string>
+    <string name="language_selection">Select Language / בחר שפה</string>
+    <string name="help_title">App Functionality</string>
+    <string name="help_content">
+        &lt;b&gt;Eyes-Free Monitoring&lt;/b&gt;: Stay alert through distinct auditory patterns representing distance and severity, designed for situational awareness while driving or active.&lt;br/&gt;&lt;br/&gt;
+        &lt;b&gt;Country-Wide Scope&lt;/b&gt;: Monitor the broader picture of alerts across the entire country in real-time.&lt;br/&gt;&lt;br/&gt;
+        &lt;b&gt;Sound Legend&lt;/b&gt;:&lt;br/&gt;
+        • &lt;b&gt;Urgent&lt;/b&gt;: A staccato sequence of tones shifting in pitch. It starts with high-pitched chirps for distant alerts and transitions into deep, low-pitched tones for threats near you.&lt;br/&gt;
+        • &lt;b&gt;Caution&lt;/b&gt;: A steady, alternating two-note melody alerting to activity in neighboring areas.&lt;br/&gt;
+        • &lt;b&gt;All Clear&lt;/b&gt;: A soft, ascending three-note melody.&lt;br/&gt;&lt;br/&gt;
+        &lt;b&gt;Disclaimer&lt;/b&gt;: This is an unofficial tool. Always prioritize official instructions and sirens from the Home Front Command.&lt;br/&gt;&lt;br/&gt;
+        &lt;b&gt;Internal Alpha&lt;/b&gt;: You are using a development version for testing purposes. Please report any issues.
+    </string>
+    <string name="version_alpha_badge">INTERNAL ALPHA</string>
+    <string name="current_status_label">CURRENT STATUS</string>
+    <string name="last_detected_label">LAST DETECTED THREAT</string>
+    <string name="footer_line1">Monitoring real-time emergency events.</string>
+    <string name="footer_line2">Stay safe. Listen to local authorities.</string>
+    <string name="lang_change_title">Change Language?</string>
+    <string name="lang_change_message">The app will restart to apply the new language and layout direction.</string>
+    <string name="lang_change_confirm">Restart Now</string>
+    <string name="cancel">Cancel</string>
+</resources>
