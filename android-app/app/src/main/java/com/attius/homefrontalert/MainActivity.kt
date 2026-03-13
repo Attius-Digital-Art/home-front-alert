@@ -3,6 +3,7 @@ package com.attius.homefrontalert
 import androidx.appcompat.app.AppCompatActivity
 import android.content.Context
 import android.content.Intent
+import android.content.res.ColorStateList
 import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
@@ -24,6 +25,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvDashTimer: TextView
     private lateinit var tvLocationBadge: TextView
     private lateinit var tvLocationZone: TextView
+    private lateinit var ivLocationStatus: ImageView
     private lateinit var vStatusDot: android.view.View
     private lateinit var ivShield: ImageView
     private lateinit var vStatusRing: android.view.View
@@ -37,6 +39,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var distanceCalculator: ZoneDistanceCalculator
 
     private val uiHandler = Handler(Looper.getMainLooper())
+    private var isResolvingLocation = false
     private val uiUpdater = object : Runnable {
         override fun run() {
             refreshDashboardState()
@@ -100,6 +103,7 @@ class MainActivity : AppCompatActivity() {
         tvDashTimer = findViewById(R.id.tvDashTimer)
         tvLocationBadge = findViewById(R.id.tvLocationBadge)
         tvLocationZone = findViewById(R.id.tvLocationZone)
+        ivLocationStatus = findViewById(R.id.ivLocationStatus)
         vStatusDot = findViewById(R.id.vStatusDot)
         ivShield = findViewById(R.id.ivShield)
         vStatusRing = findViewById(R.id.vStatusRing)
@@ -108,6 +112,10 @@ class MainActivity : AppCompatActivity() {
         tvLastAlertZones = findViewById(R.id.tvLastAlertZones)
         tvLastAlertInfo = findViewById(R.id.tvLastAlertInfo)
         cardLastAlert = findViewById(R.id.cardLastAlert)
+
+        tvLocationBadge.setOnClickListener { showLocationExplanation() }
+        tvLocationZone.setOnClickListener { showLocationExplanation() }
+        ivLocationStatus.setOnClickListener { showLocationExplanation() }
     }
 
     override fun onResume() {
@@ -157,27 +165,71 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun refreshLocationStatus() {
-        // Run location resolution in a background thread to prevent UI blocking (especially Tasks.await)
+        if (isResolvingLocation) return
+        isResolvingLocation = true
+        
+        // Run location resolution in a background thread
         kotlin.concurrent.thread(start = true) {
-            val res = locationManager.resolveCurrentLocation()
-            val localizedName = distanceCalculator.getLocalizedName(res.zoneNameHe)
-            
-            uiHandler.post {
-                tvLocationZone.text = localizedName
-                when (res.source) {
-                    "GPS" -> {
-                        tvLocationBadge.text = "GPS"
-                        tvLocationBadge.backgroundTintList = android.content.res.ColorStateList.valueOf(Color.parseColor("#34C759")) // Material Green
-                    }
-                    "SAVED" -> {
-                        tvLocationBadge.text = if (res.isFallback) "FIXED*" else "FIXED"
-                        tvLocationBadge.backgroundTintList = android.content.res.ColorStateList.valueOf(Color.parseColor("#FF9500")) // Orange fallback
-                    }
-                    else -> {
-                        tvLocationBadge.text = "DEFAULT"
-                        tvLocationBadge.backgroundTintList = android.content.res.ColorStateList.valueOf(Color.parseColor("#8E8E93")) // Gray
+            try {
+                val res = locationManager.resolveCurrentLocation()
+                val localizedName = distanceCalculator.getLocalizedName(res.zoneNameHe)
+                
+                uiHandler.post {
+                    tvLocationZone.text = localizedName
+                    if (res.source == "GPS") {
+                        ivLocationStatus.setImageResource(R.drawable.ic_gps_antenna)
+                        ivLocationStatus.imageTintList = ColorStateList.valueOf(Color.parseColor("#34C759"))
+                    } else {
+                        ivLocationStatus.setImageResource(R.drawable.ic_manual_location)
+                        val color = if (res.source == "SAVED") Color.parseColor("#546E7A") else Color.parseColor("#424242")
+                        ivLocationStatus.imageTintList = ColorStateList.valueOf(color)
                     }
                 }
+            } catch (e: Exception) {
+                android.util.Log.e("HomeFrontAlerts", "Location thread failed", e)
+            } finally {
+                isResolvingLocation = false
+            }
+        }
+    }
+
+    private fun showLocationExplanation() {
+        val lm = getSystemService(Context.LOCATION_SERVICE) as android.location.LocationManager
+        val isGpsEnabled = lm.isProviderEnabled(android.location.LocationManager.GPS_PROVIDER) || 
+                          lm.isProviderEnabled(android.location.LocationManager.NETWORK_PROVIDER)
+
+        kotlin.concurrent.thread(start = true) {
+            val res = locationManager.resolveCurrentLocation()
+            uiHandler.post {
+                var title = when(res.source) {
+                    "GPS" -> "Live GPS Active"
+                    "SAVED" -> if (res.isFallback) "Using Saved Location" else "Fixed mode"
+                    else -> "Default Location"
+                }
+                
+                var message = when(res.source) {
+                    "GPS" -> "Your location is being updated in real-time."
+                    "SAVED" -> if (res.isFallback) "Unable to get a fresh GPS lock. Using your saved location temporarily." else "Using the manually selected zone."
+                    else -> "No location set. Using Jerusalem as default."
+                }
+
+                if (!isGpsEnabled && locationManager.isUsingLiveGps()) {
+                    title = "GPS is Disabled"
+                    message = "System-level GPS is turned off. The app cannot track your location automatically.\n\nClick 'Fix' to turn it on."
+                }
+
+                val builder = androidx.appcompat.app.AlertDialog.Builder(this)
+                    .setTitle(title)
+                    .setMessage(message)
+                
+                if (!isGpsEnabled && locationManager.isUsingLiveGps()) {
+                    builder.setPositiveButton("Fix") { _, _ -> startActivity(Intent(android.provider.Settings.ACTION_LOCATION_SOURCE_SETTINGS)) }
+                    builder.setNegativeButton("Close", null)
+                } else {
+                    builder.setPositiveButton(R.string.settings_title) { _, _ -> startActivity(Intent(this, SettingsActivity::class.java)) }
+                    builder.setNegativeButton("OK", null)
+                }
+                builder.show()
             }
         }
     }
@@ -260,7 +312,11 @@ class MainActivity : AppCompatActivity() {
             
             val diffMs = System.currentTimeMillis() - time
             val diffMin = diffMs / 60000
-            val timeText = if (diffMin < 60) getString(R.string.detected_ago, "${diffMin}m") else android.text.format.DateFormat.getTimeFormat(this).format(java.util.Date(time))
+            val timeText = when {
+                diffMin < 1 -> getString(R.string.just_now)
+                diffMin < 60 -> getString(R.string.detected_ago, "${diffMin}m")
+                else -> android.text.format.DateFormat.getTimeFormat(this).format(java.util.Date(time))
+            }
             val distText = if (dist < 0) getString(R.string.remote_alert) else getString(R.string.distance, String.format("%.1f", dist))
             tvLastAlertInfo.text = "$timeText • $distText"
         } else {

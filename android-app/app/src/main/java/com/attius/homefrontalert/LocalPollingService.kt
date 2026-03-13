@@ -219,7 +219,7 @@ class LocalPollingService : Service() {
                 }
 
                 val sharedPrefs = getSharedPreferences("HomeFrontAlertsPrefs", Context.MODE_PRIVATE)
-                val threatsStr = sharedPrefs.getString("active_threats_map", "{}") ?: "{}"
+                val threatsStr = sharedPrefs.getString("active_threat_map", "{}") ?: "{}"
                 val threats = JSONObject(threatsStr)
                 val alertStyle = AlertStyleRegistry.getStyle(cat, jsonObject.optString("title", ""))
 
