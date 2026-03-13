@@ -1,0 +1,28 @@
+*.iml
+.gradle
+/local.properties
+/.idea/caches
+/.idea/libraries
+/.idea/modules.xml
+/.idea/workspace.xml
+/.idea/navEditor.xml
+/.idea/assetWizardSettings.xml
+.DS_Store
+/build
+/app/build
+/captures
+.externalNativeBuild
+.cxx
+local.properties
+
+# Logs
+*.log
+*.txt
+build_log*.txt
+rebuild_error.txt
+release_build_error*.txt
+
+# Secrets
+google-services.json
+release.jks
+local.properties

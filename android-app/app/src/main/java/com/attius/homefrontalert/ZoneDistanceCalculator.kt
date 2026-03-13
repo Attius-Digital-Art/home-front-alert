@@ -1,0 +1,150 @@
+package com.attius.homefrontalert
+
+import android.content.Context
+import kotlin.math.atan2
+import kotlin.math.cos
+import kotlin.math.sin
+import kotlin.math.sqrt
+
+data class CityLocation(val nameHe: String, val nameEn: String, val lat: Double, val lng: Double)
+
+/**
+ * Handles the geographic distance logic between the user and active alert polygons.
+ * This will parse the JSON data into a fast RAM lookup table.
+ */
+class ZoneDistanceCalculator(private val context: Context) {
+
+    // A RAM cache mapping the exact Pikud HaOref zone name ("תל אביב - מזרח") to its Lat/Lng
+    private val zoneCache = HashMap<String, CityLocation>()
+    private val normalizedCache = HashMap<String, CityLocation>()
+
+    private fun normalize(name: String): String {
+        return name.replace(Regex("[^\\u0590-\\u05FFa-zA-Z0-9]"), "").lowercase()
+    }
+
+    init {
+        try {
+            val inputStream = context.resources.openRawResource(com.attius.homefrontalert.R.raw.cities)
+            val jsonString = inputStream.bufferedReader().use { it.readText() }
+            val jsonArray = org.json.JSONArray(jsonString)
+            
+            for (i in 0 until jsonArray.length()) {
+                val cityObj = jsonArray.getJSONObject(i)
+                val zoneNameHe = cityObj.optString("name", "")
+                val zoneNameEn = cityObj.optString("name_en", zoneNameHe)
+                val lat = cityObj.optDouble("lat", 0.0)
+                val lng = cityObj.optDouble("lng", 0.0)
+                
+                if (zoneNameHe.isNotEmpty() && lat != 0.0 && lng != 0.0) {
+                    val location = CityLocation(zoneNameHe, zoneNameEn, lat, lng)
+                    zoneCache[zoneNameHe] = location
+                    zoneCache[zoneNameEn] = location // Direct English lookup
+                    
+                    val normHe = normalize(zoneNameHe)
+                    if (normHe.isNotEmpty()) normalizedCache[normHe] = location
+                    
+                    val normEn = normalize(zoneNameEn)
+                    if (normEn.isNotEmpty()) normalizedCache[normEn] = location
+                }
+            }
+            android.util.Log.d("HomeFrontAlerts", "Successfully loaded ${zoneCache.size} unique lookup keys")
+        } catch (e: Exception) {
+            android.util.Log.e("HomeFrontAlerts", "Failed to load cities.json", e)
+        }
+    }
+
+    /**
+     * Given the user's current GPS location and a list of alerted zones, 
+     * this returns a list of distances in kilometers to those zones.
+     */
+    fun calculateDistancesToAlerts(userLat: Double, userLng: Double, alertedZones: List<String>): List<Double> {
+        val distancesKm = mutableListOf<Double>()
+
+        for (zoneName in alertedZones) {
+            val zoneLocation = zoneCache[zoneName] ?: normalizedCache[normalize(zoneName)]
+            if (zoneLocation != null) {
+                // Calculate Haversine distance
+                val distance = haversineDistanceKm(
+                    userLat, userLng,
+                    zoneLocation.lat, zoneLocation.lng
+                )
+                distancesKm.add(distance)
+            }
+        }
+
+        return distancesKm
+    }
+
+    /**
+     * Determines the closest HFC zone name to a given coordinate.
+     * Returns Pair(Name, DistanceKm)
+     */
+    fun getClosestZoneNameAndDistance(lat: Double, lng: Double): Pair<String, Double>? {
+        var minDistance = Double.MAX_VALUE
+        var closestZone: String? = null
+        
+        for (location in zoneCache.values) {
+            val d = haversineDistanceKm(lat, lng, location.lat, location.lng)
+            if (d < minDistance) {
+                minDistance = d
+                closestZone = location.nameHe
+            }
+        }
+        
+        return if (closestZone != null) Pair(closestZone, minDistance) else null
+    }
+
+    /**
+     * Returns the localized name for a given Hebrew zone name.
+     */
+    fun getLocalizedName(hebrewName: String): String {
+        val loc = zoneCache[hebrewName] ?: normalizedCache[normalize(hebrewName)]
+        if (loc != null) {
+            val lang = LocaleHelper.getLanguage(context)
+            return if (lang == "iw" || lang == "he") loc.nameHe else loc.nameEn
+        }
+        return hebrewName
+    }
+
+    /**
+     * Returns all unique zone names for search/auto-complete.
+     */
+    fun getAllZones(): List<String> {
+        val lang = LocaleHelper.getLanguage(context)
+        return if (lang == "iw" || lang == "he") {
+            zoneCache.values.map { it.nameHe }.distinct().sorted()
+        } else {
+            zoneCache.values.map { it.nameEn }.distinct().sorted()
+        }
+    }
+
+    /**
+     * Gets coordinates for a specific zone name (He or En).
+     */
+    fun getZoneCoordinates(name: String): CityLocation? {
+        return zoneCache[name] ?: normalizedCache[normalize(name)]
+    }
+
+    /**
+     * Standard implementation of the Haversine formula to calculate the 
+     * great-circle distance between two points on a sphere given their longitudes and latitudes.
+     * 
+     * @return Distance in Kilometers
+     */
+    private fun haversineDistanceKm(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
+        val r = 6371.0 // Earth's radius in kilometers
+
+        val dLat = Math.toRadians(lat2 - lat1)
+        val dLon = Math.toRadians(lon2 - lon1)
+
+        val originLat = Math.toRadians(lat1)
+        val destinationLat = Math.toRadians(lat2)
+
+        val a = sin(dLat / 2) * sin(dLat / 2) +
+                sin(dLon / 2) * sin(dLon / 2) * cos(originLat) * cos(destinationLat)
+        
+        val c = 2 * atan2(sqrt(a), sqrt(1 - a))
+
+        return r * c
+    }
+}

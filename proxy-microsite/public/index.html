@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>Home Front Proxy</title>
+  </head>
+  <body>
+    <h1>Home Front Bypass Proxy</h1>
+    <p>This site proxies requests to the Home Front Command Backend.</p>
+    <p>Status: <span id="status">Checking...</span></p>
+    <script>
+      fetch('/health')
+        .then(r => r.json())
+        .then(data => {
+          document.getElementById('status').innerText = 'Backend Online (' + data.status + ')';
+        })
+        .catch(err => {
+          document.getElementById('status').innerText = 'Error: ' + err.message;
+        });
+    </script>
+  </body>
+</html>
