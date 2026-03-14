@@ -183,11 +183,24 @@ object StatusManager {
         val nowTime = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())
         
         val clean = body.trim()
-        val isEmpty = clean.isEmpty() || clean == "null" || clean == "[]" || clean == "{}"
+        var isEffectivelyEmpty = clean.isEmpty() || clean == "null" || clean == "[]" || clean == "{}"
         
-        if (isEmpty) {
-            prefs.edit().putString("shield_last_log", "[$nowTime] $sourceTag OK (No Data)").apply()
-            prefs.edit().putString("empty_sample_log", if (clean.isEmpty()) "[EMPTY]" else clean).apply()
+        // Deep check for Backend structured format: {"active": {}, ...}
+        if (!isEffectivelyEmpty && clean.startsWith("{")) {
+            try {
+                val jsonObj = org.json.JSONObject(clean)
+                val activeObj = jsonObj.optJSONObject("active")
+                val activeArr = jsonObj.optJSONArray("active")
+                if ((activeObj != null && activeObj.length() == 0) || (activeArr != null && activeArr.length() == 0)) {
+                    isEffectivelyEmpty = true
+                }
+            } catch (e: java.lang.Exception) {}
+        }
+        
+        if (isEffectivelyEmpty) {
+            prefs.edit().putString("shield_last_log", "[$nowTime] $sourceTag OK (Baseline)").apply()
+            val baselineRep = if (clean.isEmpty()) "[EMPTY]" else if (clean.length > 50) clean.take(47) + "..." else clean
+            prefs.edit().putString("empty_sample_log", baselineRep).apply()
             prefs.edit().putLong("shield_last_success_ms", System.currentTimeMillis()).apply()
             return true
         }
@@ -196,7 +209,7 @@ object StatusManager {
         prefs.edit().putString("shield_last_log", "[$nowTime] $sourceTag DATA!").apply()
         prefs.edit().putLong("shield_last_success_ms", System.currentTimeMillis()).apply()
         
-        // Update history (only first 50 chars for log preview)
+        // Update history (only first 100 chars for log preview)
         val history = prefs.getString("raw_alert_history", "") ?: ""
         val entry = "[$nowTime] $sourceTag: ${clean.take(100)}"
         if (!history.contains(clean.take(30))) {
@@ -205,14 +218,6 @@ object StatusManager {
             prefs.edit().putString("raw_alert_history", lines.take(5).joinToString("\n")).apply()
         }
 
-        // Trigger Alert Processing (Silent check if Service is active, otherwise just update state)
-        // Note: For now we let the existing MyFirebaseMessagingService or LocalPollingService triggers handle audio 
-        // to avoid duplicate sounds. But we do update the Threat Map.
-        try {
-            val root = org.json.JSONObject(body)
-            // ... threat processing logic could be moved here too ...
-        } catch (e: Exception) {}
-        
         return true
     }
 }
