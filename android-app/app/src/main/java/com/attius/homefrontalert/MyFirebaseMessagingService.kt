@@ -49,7 +49,7 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
                     }
 
                     // 2. Retrieve location using centralized logic
-                    val locationManager = AppLocationManager(applicationContext)
+                    val locationManager = AppLocationManager.getInstance(applicationContext)
                     val res = locationManager.resolveCurrentLocation()
                     val userLat = res.lat
                     val userLng = res.lng

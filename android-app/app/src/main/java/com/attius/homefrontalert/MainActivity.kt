@@ -57,7 +57,7 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
 
         sharedPrefs = getSharedPreferences("HomeFrontAlertsPrefs", Context.MODE_PRIVATE)
-        locationManager = AppLocationManager(this)
+        locationManager = AppLocationManager.getInstance(this)
         distanceCalculator = ZoneDistanceCalculator(this)
 
         performInitialSetupIfNeeded()
@@ -122,6 +122,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        locationManager.startTracking()
         uiHandler.post(uiUpdater)
     }
 

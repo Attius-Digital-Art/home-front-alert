@@ -22,7 +22,8 @@ data class ResolvedLocation(
     val activeMode: LocationTrackingMode,
     val provider: String = "Unknown",
     val accuracy: Float = 0f,
-    val timestampMs: Long = System.currentTimeMillis()
+    val timestampMs: Long = System.currentTimeMillis(),
+    val isMock: Boolean = false
 )
 
 class AppLocationManager(private val context: Context) {
@@ -37,9 +38,79 @@ class AppLocationManager(private val context: Context) {
         const val DEFAULT_LNG = 35.2017
         const val DEFAULT_ZONE_HE = "מוזיאון ישראל, ירושלים"
         
+        @Volatile
+        private var INSTANCE: AppLocationManager? = null
+
+        fun getInstance(context: Context): AppLocationManager {
+            return INSTANCE ?: synchronized(this) {
+                INSTANCE ?: AppLocationManager(context.applicationContext).also { INSTANCE = it }
+            }
+        }
+
         // Static memory cache shared across all instances (SSOT)
         @Volatile
         private var sharedCachedLocation: ResolvedLocation? = null
+    }
+
+    private var isTracking = false
+
+    private val locationListener = object : android.location.LocationListener {
+        override fun onLocationChanged(location: Location) {
+            Log.d("HomeFrontAlerts", "Location Update: ${location.provider} (${location.latitude}, ${location.longitude}) Acc: ${location.accuracy}")
+            val mode = getTrackingMode()
+            if (mode == LocationTrackingMode.FIXED_ZONE) return
+
+            val zoneInfo = distanceCalculator.getClosestZoneNameAndDistance(location.latitude, location.longitude)
+            if (zoneInfo != null) {
+                val res = ResolvedLocation(
+                    location.latitude, 
+                    location.longitude, 
+                    zoneInfo.first, 
+                    false, 
+                    "GPS", 
+                    mode, 
+                    location.provider ?: "sensor", 
+                    location.accuracy,
+                    System.currentTimeMillis(),
+                    location.isFromMockProvider
+                )
+                updateSessionCache(res)
+                savePersistentLocation(res.lat, res.lng, res.zoneNameHe)
+            }
+        }
+        override fun onStatusChanged(p0: String?, p1: Int, p2: android.os.Bundle?) {}
+        override fun onProviderEnabled(p0: String) {}
+        override fun onProviderDisabled(p0: String) {}
+    }
+
+    @SuppressLint("MissingPermission")
+    fun startTracking() {
+        if (isTracking) return
+        try {
+            val lm = context.getSystemService(Context.LOCATION_SERVICE) as android.location.LocationManager
+            if (lm.isProviderEnabled(android.location.LocationManager.GPS_PROVIDER)) {
+                lm.requestLocationUpdates(android.location.LocationManager.GPS_PROVIDER, 2000L, 5f, locationListener)
+            }
+            if (lm.isProviderEnabled(android.location.LocationManager.NETWORK_PROVIDER)) {
+                lm.requestLocationUpdates(android.location.LocationManager.NETWORK_PROVIDER, 5000L, 10f, locationListener)
+            }
+            isTracking = true
+            Log.i("HomeFrontAlerts", "Location tracking started")
+        } catch (e: Exception) {
+            Log.e("HomeFrontAlerts", "Failed to start tracking", e)
+        }
+    }
+
+    fun stopTracking() {
+        if (!isTracking) return
+        try {
+            val lm = context.getSystemService(Context.LOCATION_SERVICE) as android.location.LocationManager
+            lm.removeUpdates(locationListener)
+            isTracking = false
+            Log.i("HomeFrontAlerts", "Location tracking stopped")
+        } catch (e: Exception) {
+            Log.e("HomeFrontAlerts", "Failed to stop tracking", e)
+        }
     }
 
     fun getTrackingMode(): LocationTrackingMode {
@@ -114,73 +185,26 @@ class AppLocationManager(private val context: Context) {
             return ResolvedLocation(DEFAULT_LAT, DEFAULT_LNG, DEFAULT_ZONE_HE, true, "DEFAULT", mode, "Hard_Default")
         }
 
-        // 2. LIVE GPS MODE: SSOT Chain
+        // 2. LIVE GPS MODE: Check Active Listener Data first
         try {
-            // A. Recent Session Cache (Fast UI return)
+            // A. Recent Session Cache from Listener (Fastest)
             getSessionCache()?.let { return it.copy(activeMode = mode) }
 
-            // B. System Last Known (Check if fresh)
-            val lastLocTask = fusedLocationClient.lastLocation
-            val lastLoc: Location? = Tasks.await(lastLocTask, 1500, java.util.concurrent.TimeUnit.MILLISECONDS)
-            if (lastLoc != null) {
-                val age = System.currentTimeMillis() - lastLoc.time
-                Log.d("HomeFrontAlerts", "LastKnown found: ${lastLoc.provider}, age: ${age}ms")
-                if (age < 180000) { // 3 min 
-                    val zoneInfo = distanceCalculator.getClosestZoneNameAndDistance(lastLoc.latitude, lastLoc.longitude)
-                    if (zoneInfo != null) {
-                        Log.i("HomeFrontAlerts", "GPS Lock: Using fresh LastKnown")
-                        val res = ResolvedLocation(lastLoc.latitude, lastLoc.longitude, zoneInfo.first, false, "GPS", mode, lastLoc.provider ?: "last_known", lastLoc.accuracy)
-                        updateSessionCache(res)
-                        savePersistentLocation(res.lat, res.lng, res.zoneNameHe)
-                        return res
-                    }
-                }
-            } else {
-                Log.d("HomeFrontAlerts", "LastKnown is null")
-            }
-
-            // C. Fresh High-Accuracy Lock (Wait up to 10s for satellites)
-            Log.d("HomeFrontAlerts", "Requesting PRIORITY_HIGH_ACCURACY (10s timeout)...")
+            // B. Short-wait for any system fix if cache empty
+            Log.d("HomeFrontAlerts", "Cache empty, trying one-shot Fused...")
             val freshTask = fusedLocationClient.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, null)
-            val freshLoc: Location? = Tasks.await(freshTask, 10, java.util.concurrent.TimeUnit.SECONDS)
+            val freshLoc: Location? = Tasks.await(freshTask, 3, java.util.concurrent.TimeUnit.SECONDS)
             if (freshLoc != null) {
-                Log.d("HomeFrontAlerts", "Fresh GPS found: ${freshLoc.provider}, acc: ${freshLoc.accuracy}")
                 val zoneInfo = distanceCalculator.getClosestZoneNameAndDistance(freshLoc.latitude, freshLoc.longitude)
                 if (zoneInfo != null) {
-                    Log.i("HomeFrontAlerts", "GPS Lock: Fresh Satellite Fix")
-                    val res = ResolvedLocation(freshLoc.latitude, freshLoc.longitude, zoneInfo.first, false, "GPS", mode, freshLoc.provider ?: "gps_sat", freshLoc.accuracy)
+                    val res = ResolvedLocation(freshLoc.latitude, freshLoc.longitude, zoneInfo.first, false, "GPS", mode, freshLoc.provider ?: "fused", freshLoc.accuracy)
                     updateSessionCache(res)
                     savePersistentLocation(res.lat, res.lng, res.zoneNameHe)
                     return res
                 }
             }
-
-            // D. BRUTE FORCE FALLBACK: Standard Android LocationManager (Direct Satellites)
-            Log.d("HomeFrontAlerts", "Fused failed. Trying legacy LocationManager...")
-            val lm = context.getSystemService(Context.LOCATION_SERVICE) as android.location.LocationManager
-            val rawGps = lm.getLastKnownLocation(android.location.LocationManager.GPS_PROVIDER)
-            val rawNetwork = lm.getLastKnownLocation(android.location.LocationManager.NETWORK_PROVIDER)
-            
-            val manualLoc = when {
-                rawGps != null && (rawNetwork == null || rawGps.time > rawNetwork.time) -> rawGps
-                else -> rawNetwork
-            }
-
-            if (manualLoc != null) {
-                val age = System.currentTimeMillis() - manualLoc.time
-                if (age < 300000) { // 5 min
-                    val zoneInfo = distanceCalculator.getClosestZoneNameAndDistance(manualLoc.latitude, manualLoc.longitude)
-                    if (zoneInfo != null) {
-                        Log.i("HomeFrontAlerts", "GPS Lock: Legacy Provider Resolve (${manualLoc.provider})")
-                        val res = ResolvedLocation(manualLoc.latitude, manualLoc.longitude, zoneInfo.first, false, "GPS", mode, "legacy_" + (manualLoc.provider ?: "raw"), manualLoc.accuracy)
-                        updateSessionCache(res)
-                        savePersistentLocation(res.lat, res.lng, res.zoneNameHe)
-                        return res
-                    }
-                }
-            }
         } catch (e: Exception) {
-            Log.e("HomeFrontAlerts", "GPS Chain critical failure", e)
+            Log.e("HomeFrontAlerts", "GPS FastResolve failed", e)
         }
 
         // 3. FAILBACKS (In GPS mode but searching failed)
