@@ -2,37 +2,90 @@ package com.attius.homefrontalert
 
 /**
  * Maps Home Front Command category IDs and titles to internal AlertType (URGENT, CAUTION, CALM).
+ * Prioritizes full-string matching based on documented official phrases and captured telemetry.
  */
 object AlertStyleRegistry {
 
     fun getStyle(catId: String, title: String): AlertType {
-        // Known categories:
-        // 1: Rocket Fire (Urgent)
-        // 2: UAV Entry (Urgent)
-        // 3: Earthquake (Urgent/Caution?)
-        // 4: Tsunami (Urgent)
-        // 5: Hazardous Materials (Urgent)
-        // 10: Radiologic event (Urgent)
-        // 13: Terrorist infiltration (Urgent)
+        val trimmedTitle = title.trim()
+        val lowerTitle = trimmedTitle.lowercase()
         
-        // This is a simplified mapper. 
-        // In a real app, we might have a robust mapping.
+        // --- 1st PRIORITY: OFFICIAL CAPTURED PHRASES (Source: User App Screenshots) ---
         
+        // URGENT PHRASES
+        if (trimmedTitle == "ירי רקטות וטילים" ||
+            trimmedTitle == "חדירת כלי טיס עוין" ||
+            trimmedTitle == "חדירת מחבלים" ||
+            trimmedTitle == "היכנסו למרחב מוגן עכשיו!") {
+            return AlertType.URGENT
+        }
+
+        // CALM / ALL-CLEAR PHRASES
+        if (trimmedTitle == "האירוע הסתיים" ||
+            trimmedTitle.contains("השוהים במרחב המוגן יכולים לצאת") || // From clear description/title
+            trimmedTitle == "חזרה לשגרה") {
+            return AlertType.CALM
+        }
+
+        // CAUTION / PRE-WARNING PHRASES
+        if (trimmedTitle == "בדקות הקרובות צפויות להתקבל התרעות באזורך" ||
+            trimmedTitle == "הכינו עצמכם" ||
+            trimmedTitle == "התרעה מוקדמת") {
+            return AlertType.CAUTION
+        }
+
+
+        // --- 2nd PRIORITY: ALTERNATIVE RESEARCHED PHRASES ---
+        if (trimmedTitle == "אירוע חומרים מסוכנים" ||
+            trimmedTitle == "רעידת אדמה" ||
+            trimmedTitle == "צונאמי" ||
+            trimmedTitle == "אירוע קרינה" ||
+            trimmedTitle == "התרעה ביטחונית") {
+            return AlertType.URGENT // Safety-first for hazardous/security events
+        }
+
+
+        // --- 3rd PRIORITY: KEYWORD FALLBACK ---
+
+        // CALM Keywords
+        if (lowerTitle.contains("רגיעה") || 
+            lowerTitle.contains("סיום") || 
+            lowerTitle.contains("clear") || 
+            lowerTitle.contains("הסתיים") ||
+            lowerTitle.contains("הסתיים האירוע")) {
+            return AlertType.CALM
+        }
+
+        // CAUTION Keywords
+        if (lowerTitle.contains("חשש") || 
+            lowerTitle.contains("משוער") || 
+            lowerTitle.contains("התרע") || 
+            lowerTitle.contains("צפויות") || 
+            lowerTitle.contains("הסברו") ||
+            lowerTitle.contains("caution") || 
+            lowerTitle.contains("approx")) {
+            return AlertType.CAUTION
+        }
+
+        // URGENT Keywords
+        if (lowerTitle.contains("ירי") || 
+            lowerTitle.contains("כלי טיס") || 
+            lowerTitle.contains("חדירה") || 
+            lowerTitle.contains("rocket") || 
+            lowerTitle.contains("missile") || 
+            lowerTitle.contains("uav") || 
+            lowerTitle.contains("drone") || 
+            lowerTitle.contains("infiltration")) {
+            return AlertType.URGENT
+        }
+
+        // --- 4th PRIORITY: CATEGORY FALLBACK (Legacy/Alternative) ---
         return when (catId) {
-            "1", "2", "4", "5", "10", "13" -> AlertType.URGENT
-            "3" -> AlertType.CAUTION // Earthquake might be a caution or urgent depending on severity
+            "1", "2", "3", "4", "5", "6", "7", "8", "10", "11", "12" -> AlertType.URGENT
+            "13" -> AlertType.CALM
+            "14" -> AlertType.CAUTION
             "all_clear" -> AlertType.CALM
-            else -> {
-                // Heuristic based on title for unknown categories
-                val lowerTitle = title.lowercase()
-                if (lowerTitle.contains("ירי") || lowerTitle.contains("כלי טיס") || lowerTitle.contains("חדירה")) {
-                    AlertType.URGENT
-                } else if (lowerTitle.contains("רגיעה") || lowerTitle.contains("חזרה לשגרה")) {
-                    AlertType.CALM
-                } else {
-                    AlertType.CAUTION
-                }
-            }
+            else -> AlertType.CAUTION // Default to Caution if totally unknown
         }
     }
 }
