@@ -36,12 +36,11 @@ object StatusManager {
             putString("last_known_lat", lat.toString())
             putString("last_known_lng", lng.toString())
             putString("last_known_zone_he", zoneHe)
+            putLong("last_location_update_ms", System.currentTimeMillis())
             apply()
         }
         
-        if (zoneHe != oldZone) {
-            syncUiComponents(context)
-        }
+        syncUiComponents(context)
     }
 
     fun normalizeCity(city: String): String {

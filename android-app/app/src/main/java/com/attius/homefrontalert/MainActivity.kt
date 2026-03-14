@@ -221,8 +221,8 @@ class MainActivity : AppCompatActivity() {
                 }
                 
                 var message = when(res.source) {
-                    "GPS" -> "Your location is being updated in real-time."
-                    "SAVED" -> if (res.isFallback) "Unable to get a fresh GPS lock. Using your saved location temporarily." else "Using the manually selected zone."
+                    "GPS" -> "Your location is being updated in real-time.\n(Source: ${res.provider}, Accuracy: ${String.format("%.1fm", res.accuracy)})"
+                    "SAVED" -> if (res.isFallback) "Unable to get a fresh GPS lock. Using last known location:\n${localizedName} (Source: ${res.provider})" else "Using the manually selected zone."
                     else -> "No location set. Using Jerusalem as default."
                 }
 

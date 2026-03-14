@@ -16,9 +16,12 @@ data class ResolvedLocation(
     val lat: Double,
     val lng: Double,
     val zoneNameHe: String,
-    val isFallback: Boolean, // True if we are using a substitute (old GPS, cached, or default) because real-time is missing
+    val isFallback: Boolean,
     val source: String,      // "GPS", "SAVED", "DEFAULT"
-    val activeMode: LocationTrackingMode = LocationTrackingMode.FIXED_ZONE
+    val activeMode: LocationTrackingMode,
+    val provider: String = "Unknown",
+    val accuracy: Float = 0f,
+    val timestampMs: Long = System.currentTimeMillis()
 )
 
 class AppLocationManager(private val context: Context) {
@@ -32,6 +35,10 @@ class AppLocationManager(private val context: Context) {
         const val DEFAULT_LAT = 31.7719
         const val DEFAULT_LNG = 35.2017
         const val DEFAULT_ZONE_HE = "מוזיאון ישראל, ירושלים"
+        
+        // Static memory cache shared across all instances (SSOT)
+        @Volatile
+        private var sharedCachedLocation: ResolvedLocation? = null
     }
 
     fun getTrackingMode(): LocationTrackingMode {
@@ -75,7 +82,17 @@ class AppLocationManager(private val context: Context) {
         editor.apply()
     }
 
-    private var cachedLocation: ResolvedLocation? = null
+    private fun getSessionCache(): ResolvedLocation? {
+        val cache = sharedCachedLocation
+        if (cache != null && (System.currentTimeMillis() - cache.timestampMs) < 120000) { // 2 min TTL
+            return cache
+        }
+        return null
+    }
+
+    private fun updateSessionCache(loc: ResolvedLocation) {
+        sharedCachedLocation = loc
+    }
 
     /**
      * Resolves the location based on current settings and environmental availability.
@@ -85,92 +102,86 @@ class AppLocationManager(private val context: Context) {
         val mode = getTrackingMode()
         val savedZoneHe = getSavedZoneHe()
         
-        // 1. Force SSOT for Fixed Zone Mode - Ignore any GPS/Mobile cache
+        // 1. FIXED MODE: Immediate exit
         if (mode == LocationTrackingMode.FIXED_ZONE) {
             if (savedZoneHe != null) {
                 val loc = distanceCalculator.getZoneCoordinates(savedZoneHe)
                 if (loc != null) {
-                    return ResolvedLocation(loc.lat, loc.lng, savedZoneHe, false, "SAVED", mode)
+                    return ResolvedLocation(loc.lat, loc.lng, savedZoneHe, false, "SAVED", mode, "Manual")
                 }
             }
-            return ResolvedLocation(DEFAULT_LAT, DEFAULT_LNG, DEFAULT_ZONE_HE, true, "DEFAULT", mode)
+            return ResolvedLocation(DEFAULT_LAT, DEFAULT_LNG, DEFAULT_ZONE_HE, true, "DEFAULT", mode, "Hard_Default")
         }
 
-        // 2. GPS Mode: Try for a real-time lock
+        // 2. LIVE GPS MODE: SSOT Chain
         try {
-            // A. Try last known location first (lightning fast fallback)
+            // A. Recent Session Cache (Fast UI return)
+            getSessionCache()?.let { return it.copy(activeMode = mode) }
+
+            // B. System Last Known (Check if fresh)
             val lastLocTask = fusedLocationClient.lastLocation
-            val lastLoc: Location? = Tasks.await(lastLocTask, 1000, java.util.concurrent.TimeUnit.MILLISECONDS)
-            
-            val ageMs = if (lastLoc != null) System.currentTimeMillis() - lastLoc.time else Long.MAX_VALUE
-            // If we have a very fresh (2 min) location, consider it successfully "locked"
-            if (lastLoc != null && ageMs < 120000) { 
-                val zoneInfo = distanceCalculator.getClosestZoneNameAndDistance(lastLoc.latitude, lastLoc.longitude)
-                if (zoneInfo != null && zoneInfo.second < 150.0) {
-                    savePersistentLocation(lastLoc.latitude, lastLoc.longitude, zoneInfo.first)
-                    val res = ResolvedLocation(lastLoc.latitude, lastLoc.longitude, zoneInfo.first, false, "GPS", mode)
-                    cachedLocation = res
+            val lastLoc: Location? = Tasks.await(lastLocTask, 1500, java.util.concurrent.TimeUnit.MILLISECONDS)
+            if (lastLoc != null) {
+                val age = System.currentTimeMillis() - lastLoc.time
+                if (age < 180000) { // 3 min 
+                    val zoneInfo = distanceCalculator.getClosestZoneNameAndDistance(lastLoc.latitude, lastLoc.longitude)
+                    if (zoneInfo != null) {
+                        val res = ResolvedLocation(lastLoc.latitude, lastLoc.longitude, zoneInfo.first, false, "GPS", mode, lastLoc.provider ?: "last_known", lastLoc.accuracy)
+                        updateSessionCache(res)
+                        savePersistentLocation(res.lat, res.lng, res.zoneNameHe)
+                        return res
+                    }
+                }
+            }
+
+            // C. Fresh High-Accuracy Lock (Wait up to 10s for satellites)
+            val freshTask = fusedLocationClient.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, null)
+            val freshLoc: Location? = Tasks.await(freshTask, 10, java.util.concurrent.TimeUnit.SECONDS)
+            if (freshLoc != null) {
+                val zoneInfo = distanceCalculator.getClosestZoneNameAndDistance(freshLoc.latitude, freshLoc.longitude)
+                if (zoneInfo != null) {
+                    val res = ResolvedLocation(freshLoc.latitude, freshLoc.longitude, zoneInfo.first, false, "GPS", mode, freshLoc.provider ?: "gps_sat", freshLoc.accuracy)
+                    updateSessionCache(res)
+                    savePersistentLocation(res.lat, res.lng, res.zoneNameHe)
                     return res
                 }
             }
 
-            // B. Try a fresh high-accuracy hit (Satellites) - 4s timeout
-            val locationTask = fusedLocationClient.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, null)
-            val location: Location? = Tasks.await(locationTask, 4, java.util.concurrent.TimeUnit.SECONDS)
-            
-            if (location != null) {
-                val zoneInfo = distanceCalculator.getClosestZoneNameAndDistance(location.latitude, location.longitude)
-                if (zoneInfo != null && zoneInfo.second < 150.0) {
-                    savePersistentLocation(location.latitude, location.longitude, zoneInfo.first)
-                    val res = ResolvedLocation(location.latitude, location.longitude, zoneInfo.first, false, "GPS", mode)
-                    cachedLocation = res
-                    return res
-                }
-            }
-
-            // C. Indoor Fallback: Balanced Power (WiFi/Cell) if Satellites fail - 3s timeout
+            // D. Indoor Fallback (Cell/WiFi) - 5s
             val indoorTask = fusedLocationClient.getCurrentLocation(Priority.PRIORITY_BALANCED_POWER_ACCURACY, null)
-            val indoorLoc: Location? = Tasks.await(indoorTask, 3, java.util.concurrent.TimeUnit.SECONDS)
+            val indoorLoc: Location? = Tasks.await(indoorTask, 5, java.util.concurrent.TimeUnit.SECONDS)
             if (indoorLoc != null) {
                 val zoneInfo = distanceCalculator.getClosestZoneNameAndDistance(indoorLoc.latitude, indoorLoc.longitude)
-                if (zoneInfo != null && zoneInfo.second < 150.0) {
-                    savePersistentLocation(indoorLoc.latitude, indoorLoc.longitude, zoneInfo.first)
-                    val res = ResolvedLocation(indoorLoc.latitude, indoorLoc.longitude, zoneInfo.first, false, "GPS", mode)
-                    cachedLocation = res
+                if (zoneInfo != null) {
+                    val res = ResolvedLocation(indoorLoc.latitude, indoorLoc.longitude, zoneInfo.first, false, "GPS", mode, "indoor_" + (indoorLoc.provider ?: "net"), indoorLoc.accuracy)
+                    updateSessionCache(res)
+                    savePersistentLocation(res.lat, res.lng, res.zoneNameHe)
                     return res
                 }
             }
         } catch (e: Exception) {
-            // Timeout or permission issue
+            Log.e("HomeFrontAlerts", "GPS Chain failed", e)
         }
 
-        // 3. Fallback Chain for GPS Mode (when real-time is searching/failed)
+        // 3. FAILBACKS (In GPS mode but searching failed)
         
-        // 3a. Session Memory Cache - (Max 5 minutes old)
-        cachedLocation?.let { 
-            // If it's too old, we drop it to force a fresh search or deeper fallback
-            // But we keep it if we have nothing else
-            return it.copy(isFallback = true, activeMode = mode)
+        // 3a. Persistent Persistence (Last known successfully verified location)
+        val pLat = sharedPreferences.getString("last_known_lat", null)?.toDoubleOrNull()
+        val pLng = sharedPreferences.getString("last_known_lng", null)?.toDoubleOrNull()
+        val pZone = sharedPreferences.getString("last_known_zone_he", null)
+        if (pLat != null && pLng != null && pZone != null) {
+            return ResolvedLocation(pLat, pLng, pZone, true, "SAVED", mode, "Stored_GPS", -1.0f)
         }
 
-        // 3b. Persistent Fallback - Last known from PREVIOUS sessions/locks
-        val lastKnownLat = sharedPreferences.getString("last_known_lat", null)?.toDoubleOrNull()
-        val lastKnownLng = sharedPreferences.getString("last_known_lng", null)?.toDoubleOrNull()
-        val lastKnownZone = sharedPreferences.getString("last_known_zone_he", null)
-        if (lastKnownLat != null && lastKnownLng != null && lastKnownZone != null) {
-            return ResolvedLocation(lastKnownLat, lastKnownLng, lastKnownZone, true, "SAVED", mode)
-        }
-
-        // 3c. Manual Zone Fallback
+        // 3b. Manual Zone Fallback
         if (savedZoneHe != null) {
             val loc = distanceCalculator.getZoneCoordinates(savedZoneHe)
             if (loc != null) {
-                return ResolvedLocation(loc.lat, loc.lng, savedZoneHe, true, "SAVED", mode)
+                return ResolvedLocation(loc.lat, loc.lng, savedZoneHe, true, "SAVED", mode, "Manual_Fallback", 0f)
             }
         }
 
-        // 4. Absolute Fallback: Jerusalem Museum
-        return ResolvedLocation(DEFAULT_LAT, DEFAULT_LNG, DEFAULT_ZONE_HE, true, "DEFAULT", mode)
+        return ResolvedLocation(DEFAULT_LAT, DEFAULT_LNG, DEFAULT_ZONE_HE, true, "DEFAULT", mode, "Absolute_Default", 0f)
     }
 
     private fun savePersistentLocation(lat: Double, lng: Double, zoneHe: String) {
