@@ -124,23 +124,30 @@ class AppLocationManager(private val context: Context) {
             val lastLoc: Location? = Tasks.await(lastLocTask, 1500, java.util.concurrent.TimeUnit.MILLISECONDS)
             if (lastLoc != null) {
                 val age = System.currentTimeMillis() - lastLoc.time
+                Log.d("HomeFrontAlerts", "LastKnown found: ${lastLoc.provider}, age: ${age}ms")
                 if (age < 180000) { // 3 min 
                     val zoneInfo = distanceCalculator.getClosestZoneNameAndDistance(lastLoc.latitude, lastLoc.longitude)
                     if (zoneInfo != null) {
+                        Log.i("HomeFrontAlerts", "GPS Lock: Using fresh LastKnown")
                         val res = ResolvedLocation(lastLoc.latitude, lastLoc.longitude, zoneInfo.first, false, "GPS", mode, lastLoc.provider ?: "last_known", lastLoc.accuracy)
                         updateSessionCache(res)
                         savePersistentLocation(res.lat, res.lng, res.zoneNameHe)
                         return res
                     }
                 }
+            } else {
+                Log.d("HomeFrontAlerts", "LastKnown is null")
             }
 
             // C. Fresh High-Accuracy Lock (Wait up to 10s for satellites)
+            Log.d("HomeFrontAlerts", "Requesting PRIORITY_HIGH_ACCURACY (10s timeout)...")
             val freshTask = fusedLocationClient.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, null)
             val freshLoc: Location? = Tasks.await(freshTask, 10, java.util.concurrent.TimeUnit.SECONDS)
             if (freshLoc != null) {
+                Log.d("HomeFrontAlerts", "Fresh GPS found: ${freshLoc.provider}, acc: ${freshLoc.accuracy}")
                 val zoneInfo = distanceCalculator.getClosestZoneNameAndDistance(freshLoc.latitude, freshLoc.longitude)
                 if (zoneInfo != null) {
+                    Log.i("HomeFrontAlerts", "GPS Lock: Fresh Satellite Fix")
                     val res = ResolvedLocation(freshLoc.latitude, freshLoc.longitude, zoneInfo.first, false, "GPS", mode, freshLoc.provider ?: "gps_sat", freshLoc.accuracy)
                     updateSessionCache(res)
                     savePersistentLocation(res.lat, res.lng, res.zoneNameHe)
@@ -148,31 +155,43 @@ class AppLocationManager(private val context: Context) {
                 }
             }
 
-            // D. Indoor Fallback (Cell/WiFi) - 5s
-            val indoorTask = fusedLocationClient.getCurrentLocation(Priority.PRIORITY_BALANCED_POWER_ACCURACY, null)
-            val indoorLoc: Location? = Tasks.await(indoorTask, 5, java.util.concurrent.TimeUnit.SECONDS)
-            if (indoorLoc != null) {
-                val zoneInfo = distanceCalculator.getClosestZoneNameAndDistance(indoorLoc.latitude, indoorLoc.longitude)
-                if (zoneInfo != null) {
-                    val res = ResolvedLocation(indoorLoc.latitude, indoorLoc.longitude, zoneInfo.first, false, "GPS", mode, "indoor_" + (indoorLoc.provider ?: "net"), indoorLoc.accuracy)
-                    updateSessionCache(res)
-                    savePersistentLocation(res.lat, res.lng, res.zoneNameHe)
-                    return res
+            // D. BRUTE FORCE FALLBACK: Standard Android LocationManager (Direct Satellites)
+            Log.d("HomeFrontAlerts", "Fused failed. Trying legacy LocationManager...")
+            val lm = context.getSystemService(Context.LOCATION_SERVICE) as android.location.LocationManager
+            val rawGps = lm.getLastKnownLocation(android.location.LocationManager.GPS_PROVIDER)
+            val rawNetwork = lm.getLastKnownLocation(android.location.LocationManager.NETWORK_PROVIDER)
+            
+            val manualLoc = when {
+                rawGps != null && (rawNetwork == null || rawGps.time > rawNetwork.time) -> rawGps
+                else -> rawNetwork
+            }
+
+            if (manualLoc != null) {
+                val age = System.currentTimeMillis() - manualLoc.time
+                if (age < 300000) { // 5 min
+                    val zoneInfo = distanceCalculator.getClosestZoneNameAndDistance(manualLoc.latitude, manualLoc.longitude)
+                    if (zoneInfo != null) {
+                        Log.i("HomeFrontAlerts", "GPS Lock: Legacy Provider Resolve (${manualLoc.provider})")
+                        val res = ResolvedLocation(manualLoc.latitude, manualLoc.longitude, zoneInfo.first, false, "GPS", mode, "legacy_" + (manualLoc.provider ?: "raw"), manualLoc.accuracy)
+                        updateSessionCache(res)
+                        savePersistentLocation(res.lat, res.lng, res.zoneNameHe)
+                        return res
+                    }
                 }
             }
         } catch (e: Exception) {
-            Log.e("HomeFrontAlerts", "GPS Chain failed", e)
+            Log.e("HomeFrontAlerts", "GPS Chain critical failure", e)
         }
 
         // 3. FAILBACKS (In GPS mode but searching failed)
         
-        // 3a. Persistent Persistence (Last known successfully verified location - 24h TTL)
+        // 3a. Persistent Persistence (Last known successfully verified location - Retained indefinitely per user request)
         val pLat = sharedPreferences.getString("last_known_lat", null)?.toDoubleOrNull()
         val pLng = sharedPreferences.getString("last_known_lng", null)?.toDoubleOrNull()
         val pZone = sharedPreferences.getString("last_known_zone_he", null)
-        val pTime = sharedPreferences.getLong("last_location_update_ms", 0)
         
-        if (pLat != null && pLng != null && pZone != null && (System.currentTimeMillis() - pTime) < 86400000) {
+        if (pLat != null && pLng != null && pZone != null) {
+            Log.d("HomeFrontAlerts", "GPS Fail: Using persistent fallback: $pZone")
             return ResolvedLocation(pLat, pLng, pZone, true, "SAVED", mode, "Stored_GPS", -1.0f)
         }
 
