@@ -269,6 +269,13 @@ class SettingsActivity : AppCompatActivity() {
                             }
 
                             var displayString = "$finalStatusText\n(Lat: ${String.format("%.4f", finalRes.lat)}, Lng: ${String.format("%.4f", finalRes.lng)})"
+                            
+                            if (finalRes.activeMode == LocationTrackingMode.GPS_LIVE) {
+                                val sats = "Sats: ${locationManager.satellitesUsed}/${locationManager.satellitesInView}"
+                                val snr = "SNR: ${String.format("%.0f", locationManager.avgSnr)}"
+                                displayString += "\n($sats | $snr)"
+                            }
+
                             if (finalRes.source == "GPS") {
                                 displayString += "\n(${finalRes.provider} | Acc: ${String.format("%.0fm", finalRes.accuracy)})"
                             }
