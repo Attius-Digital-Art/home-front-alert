@@ -138,10 +138,14 @@ class MainActivity : AppCompatActivity() {
         }
 
         val elapsedSec = (System.currentTimeMillis() - startTime) / 1000
+        val unitS = getString(R.string.unit_seconds_short)
+        val unitM = getString(R.string.unit_minutes_short)
+        val unitH = getString(R.string.unit_hours_short)
+        
         val dispTimer = when {
-            elapsedSec < 60 -> "${elapsedSec}s"
+            elapsedSec < 60 -> "${elapsedSec}$unitS"
             elapsedSec < 3600 -> String.format("%d:%02d", elapsedSec / 60, elapsedSec % 60)
-            else -> String.format("%dh %dm", elapsedSec / 3600, (elapsedSec % 3600) / 60)
+            else -> String.format("%d$unitH %d$unitM", elapsedSec / 3600, (elapsedSec % 3600) / 60)
         }
         
         val timerPrefix = if (status == "GREEN") getString(R.string.monitoring_for) else getString(R.string.active_for)
@@ -311,7 +315,7 @@ class MainActivity : AppCompatActivity() {
             val diffMin = diffMs / 60000
             val timeText = when {
                 diffMin < 1 -> getString(R.string.just_now)
-                diffMin < 60 -> getString(R.string.detected_ago, "${diffMin}m")
+                diffMin < 60 -> getString(R.string.detected_ago, "${diffMin}${getString(R.string.unit_minutes_short)}")
                 else -> android.text.format.DateFormat.getTimeFormat(this).format(java.util.Date(time))
             }
             val distText = if (dist < 0) getString(R.string.remote_alert) else getString(R.string.distance, String.format("%.1f", dist))

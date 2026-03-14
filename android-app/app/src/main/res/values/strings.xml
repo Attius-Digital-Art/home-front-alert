@@ -13,6 +13,9 @@
     <string name="just_now">Just Now</string>
     <string name="detected_ago">Detected %s ago</string>
     <string name="distance">Distance: %s km</string>
+    <string name="unit_seconds_short">s</string>
+    <string name="unit_minutes_short">m</string>
+    <string name="unit_hours_short">h</string>
     <string name="remote_alert">Remote / Unknown</string>
     <string name="settings_title">Home Front Control Panel</string>
     <string name="default_museum_he">מוזיאון ישראל, ירושלים</string>
