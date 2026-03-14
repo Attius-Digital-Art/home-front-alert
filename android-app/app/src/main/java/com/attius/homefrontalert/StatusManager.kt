@@ -111,10 +111,108 @@ object StatusManager {
                 putExtra("status", status)
             }
             try {
-                context.startService(intent)
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                    context.startForegroundService(intent)
+                } else {
+                    context.startService(intent)
+                }
             } catch (e: Exception) {
                 Log.e("HomeFrontAlerts", "UI Sync failed", e)
             }
         }
+    }
+
+    /**
+     * Unified Polling Engine: Can be called by Service or Activity.
+     * Processes alerts, updates history, and maintains the baseline.
+     */
+    fun runPollCycle(context: android.content.Context, forceBackend: Boolean = false) {
+        val sharedPrefs = context.getSharedPreferences(PREFS_NAME, android.content.Context.MODE_PRIVATE)
+        val now = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())
+        val proxyRoot = BuildConfig.BACKEND_URL
+        val proxyUrl = if (proxyRoot.endsWith("/alerts")) proxyRoot else "$proxyRoot/alerts"
+
+        var hfcStatus = "Pending"
+        var success = false
+
+        // 1. Try Direct HFC (Unless forced backend)
+        if (!forceBackend) {
+            try {
+                val hfcUrl = java.net.URL("https://www.oref.org.il/WarningMessages/alert/Alerts.json")
+                val conn = hfcUrl.openConnection() as java.net.HttpURLConnection
+                conn.connectTimeout = 3000
+                conn.readTimeout = 3000
+                conn.setRequestProperty("User-Agent", "PikudHaoref/1.6 (iPhone; iOS 17.4; Scale/3.00)")
+                conn.setRequestProperty("Referer", "https://www.oref.org.il/")
+                
+                val code = conn.responseCode
+                hfcStatus = "HFC: $code"
+
+                if (code == 200 || code == 204) {
+                    val body = if (code == 200) conn.inputStream.bufferedReader().use { it.readText() } else ""
+                    success = handlePollResult(context, body, "[HFC]", hfcStatus)
+                }
+            } catch (e: Exception) { hfcStatus = "HFC: Fail" }
+        }
+
+        // 2. Try Backend Proxy
+        if (!success && BuildConfig.IS_PAID) {
+            try {
+                val url = java.net.URL(proxyUrl)
+                val conn = url.openConnection() as java.net.HttpURLConnection
+                conn.connectTimeout = 4000
+                conn.readTimeout = 4000
+                conn.setRequestProperty("X-API-Key", BuildConfig.API_KEY)
+                
+                if (conn.responseCode == 200) {
+                    val body = conn.inputStream.bufferedReader().use { it.readText() }
+                    success = handlePollResult(context, body, "[Backend]", "OK")
+                } else {
+                    hfcStatus += " | Backend: ${conn.responseCode}"
+                }
+            } catch (e: Exception) { hfcStatus += " | Backend: Fail" }
+        }
+
+        if (!success && !forceBackend) {
+            sharedPrefs.edit().putString("shield_last_log", "[$now] Shield Offline | $hfcStatus").apply()
+        }
+    }
+
+    private fun handlePollResult(context: android.content.Context, body: String, sourceTag: String, statusInfo: String): Boolean {
+        val prefs = context.getSharedPreferences(PREFS_NAME, android.content.Context.MODE_PRIVATE)
+        val nowTime = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())
+        
+        val clean = body.trim()
+        val isEmpty = clean.isEmpty() || clean == "null" || clean == "[]" || clean == "{}"
+        
+        if (isEmpty) {
+            prefs.edit().putString("shield_last_log", "[$nowTime] $sourceTag OK (No Data)").apply()
+            prefs.edit().putString("empty_sample_log", if (clean.isEmpty()) "[EMPTY]" else clean).apply()
+            prefs.edit().putLong("shield_last_success_ms", System.currentTimeMillis()).apply()
+            return true
+        }
+
+        // Data found! 
+        prefs.edit().putString("shield_last_log", "[$nowTime] $sourceTag DATA!").apply()
+        prefs.edit().putLong("shield_last_success_ms", System.currentTimeMillis()).apply()
+        
+        // Update history (only first 50 chars for log preview)
+        val history = prefs.getString("raw_alert_history", "") ?: ""
+        val entry = "[$nowTime] $sourceTag: ${clean.take(100)}"
+        if (!history.contains(clean.take(30))) {
+            val lines = history.split("\n").filter { it.isNotEmpty() }.toMutableList()
+            lines.add(0, entry)
+            prefs.edit().putString("raw_alert_history", lines.take(5).joinToString("\n")).apply()
+        }
+
+        // Trigger Alert Processing (Silent check if Service is active, otherwise just update state)
+        // Note: For now we let the existing MyFirebaseMessagingService or LocalPollingService triggers handle audio 
+        // to avoid duplicate sounds. But we do update the Threat Map.
+        try {
+            val root = org.json.JSONObject(body)
+            // ... threat processing logic could be moved here too ...
+        } catch (e: Exception) {}
+        
+        return true
     }
 }

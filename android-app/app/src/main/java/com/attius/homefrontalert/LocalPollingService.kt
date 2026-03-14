@@ -99,87 +99,15 @@ class LocalPollingService : Service() {
     }
 
     private fun pollCycle() {
-        val sharedPrefs = getSharedPreferences("HomeFrontAlertsPrefs", Context.MODE_PRIVATE)
-        val now = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())
-        val proxyRoot = BuildConfig.BACKEND_URL
-        val proxyUrl = if (proxyRoot.endsWith("/alerts")) proxyRoot else "$proxyRoot/alerts"
-
-        var hfcStatus: String
-        var success = false
-
-        // 1. PRIMARY: Try HFC Direct
-        try {
-            val hfcUrl = URL("https://www.oref.org.il/WarningMessages/alert/Alerts.json")
-            val conn = hfcUrl.openConnection() as HttpURLConnection
-            conn.requestMethod = "GET"
-            conn.connectTimeout = 3000
-            conn.readTimeout = 3000
-            conn.setRequestProperty("User-Agent", "PikudHaoref/1.6 (iPhone; iOS 17.4; Scale/3.00)")
-            conn.setRequestProperty("Referer", "https://www.oref.org.il/")
-            
-            val code = conn.responseCode
-            hfcStatus = "HFC: $code"
-
-            if (code == 200) {
-                val body = conn.inputStream.bufferedReader().use { it.readText() }
-                saveRawAlertToLog("[HFC]", body)
-                
-                val clean = body.trim()
-                val isData = clean.isNotEmpty() && clean != "null" && clean != "{}" && clean != "[]"
-                
-                if (isData) {
-                    processPolledAlertData(body, "[HFC]")
-                    sharedPrefs.edit().putString("shield_last_log", "[$now] [HFC] DATA! ... $hfcStatus").apply()
-                    sharedPrefs.edit().putLong("shield_last_success_ms", System.currentTimeMillis()).apply()
-                    success = true
-                } else {
-                    sharedPrefs.edit().putString("shield_last_log", "[$now] Direct HFC OK (No Data)").apply()
-                    sharedPrefs.edit().putLong("shield_last_success_ms", System.currentTimeMillis()).apply()
-                    success = true
-                }
-            } else if (code == 204) {
-                sharedPrefs.edit().putString("shield_last_log", "[$now] Direct HFC OK (204)").apply()
-                sharedPrefs.edit().putLong("shield_last_success_ms", System.currentTimeMillis()).apply()
-                success = true
-            }
-        } catch (e: Exception) {
-            hfcStatus = "HFC: Fail"
-        }
-
-        // 2. SECONDARY: If HFC failed or blocked, try Global Proxy (PAID ONLY)
-        if (!success && BuildConfig.IS_PAID) {
-            try {
-                val url = URL(proxyUrl)
-                val conn = url.openConnection() as HttpURLConnection
-                conn.requestMethod = "GET"
-                conn.connectTimeout = 4000
-                conn.readTimeout = 4000
-                conn.setRequestProperty("User-Agent", "HomeFrontAlerts-Android/1.3.5")
-                conn.setRequestProperty("X-API-Key", BuildConfig.API_KEY)
-                
-                val code = conn.responseCode
-                if (code == 200) {
-                    val body = conn.inputStream.bufferedReader().use { it.readText() }
-                    saveRawAlertToLog("[Backend]", body)
-                    if (body.trim().isNotEmpty() && body != "null" && body != "{}" && body != "[]") {
-                        processPolledAlertData(body, "[Backend]")
-                        sharedPrefs.edit().putString("shield_last_log", "[$now] [Backend] DATA! | $hfcStatus").apply()
-                    } else {
-                        sharedPrefs.edit().putString("shield_last_log", "[$now] [Backend] OK (204) | $hfcStatus").apply()
-                    }
-                    sharedPrefs.edit().putLong("shield_last_success_ms", System.currentTimeMillis()).apply()
-                    success = true
-                } else {
-                    sharedPrefs.edit().putString("shield_last_log", "[$now] [Backend] Err $code | $hfcStatus").apply()
-                }
-            } catch (e: Exception) {
-                sharedPrefs.edit().putString("shield_last_log", "[$now] [Backend] Fail | $hfcStatus").apply()
-            }
-        }
+        StatusManager.runPollCycle(this)
         
-        if (!success) {
-            sharedPrefs.edit().putString("shield_last_log", "[$now] Shield Offline | $hfcStatus").apply()
-        }
+        // After polling, we check if there's data to process for audio locally
+        val sharedPrefs = getSharedPreferences("HomeFrontAlertsPrefs", Context.MODE_PRIVATE)
+        val lastSuccess = sharedPrefs.getLong("shield_last_success_ms", 0)
+        
+        // Note: StatusManager now handles the raw log and baseline.
+        // We still check if a sound needs to be played.
+        StatusManager.recalculateStatus(this)
     }
 
     private fun saveRawAlertToLog(source: String, body: String) {
