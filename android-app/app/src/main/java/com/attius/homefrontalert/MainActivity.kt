@@ -48,6 +48,17 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private val backendPoller = object : Runnable {
+        override fun run() {
+            if (!sharedPrefs.getBoolean("shield_active", false)) {
+                kotlin.concurrent.thread(start = true) {
+                    StatusManager.runPollCycle(this@MainActivity, forceBackend = true)
+                }
+            }
+            uiHandler.postDelayed(this, 15000) // 15s for backend hybrid route
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         
@@ -124,11 +135,13 @@ class MainActivity : AppCompatActivity() {
         super.onResume()
         locationManager.startTracking()
         uiHandler.post(uiUpdater)
+        uiHandler.post(backendPoller)
     }
 
     override fun onPause() {
         super.onPause()
         uiHandler.removeCallbacks(uiUpdater)
+        uiHandler.removeCallbacks(backendPoller)
     }
 
     private fun refreshDashboardState() {
