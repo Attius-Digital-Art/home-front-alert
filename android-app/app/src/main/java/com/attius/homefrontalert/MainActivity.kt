@@ -30,6 +30,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var ivShield: ImageView
     private lateinit var vStatusRing: android.view.View
     private lateinit var layoutDashboardContent: ConstraintLayout
+    private lateinit var tvDashCountdown: TextView
     
     private lateinit var tvLastAlertZones: TextView
     private lateinit var tvLastAlertInfo: TextView
@@ -108,6 +109,7 @@ class MainActivity : AppCompatActivity() {
         ivShield = findViewById(R.id.ivShield)
         vStatusRing = findViewById(R.id.vStatusRing)
         layoutDashboardContent = findViewById(R.id.layoutDashboardContent)
+        tvDashCountdown = findViewById(R.id.tvDashCountdown)
         
         tvLastAlertZones = findViewById(R.id.tvLastAlertZones)
         tvLastAlertInfo = findViewById(R.id.tvLastAlertInfo)
@@ -150,6 +152,37 @@ class MainActivity : AppCompatActivity() {
         
         val timerPrefix = if (status == "GREEN") getString(R.string.monitoring_for) else getString(R.string.active_for)
         tvDashTimer.text = "$timerPrefix $dispTimer"
+
+        // Local Countdown Logic
+        val threatsStr = sharedPrefs.getString("active_threat_map", "{}") ?: "{}"
+        var localRemaining = -1L
+        try {
+            val threats = org.json.JSONObject(threatsStr)
+            val res = locationManager.resolveCurrentLocation()
+            val homeZone = StatusManager.normalizeCity(res.zoneNameHe)
+            val iter = threats.keys()
+            while(iter.hasNext()) {
+                val z = iter.next()
+                if (StatusManager.normalizeCity(z) == homeZone) {
+                    val obj = threats.getJSONObject(z)
+                    val startTime = obj.optLong("t", 0)
+                    val duration = obj.optInt("c", 0)
+                    if (startTime > 0 && duration > 0) {
+                        val rem = duration - (System.currentTimeMillis() - startTime) / 1000
+                        if (rem > 0) localRemaining = rem
+                    }
+                }
+            }
+        } catch(e: Exception) {}
+
+        if (localRemaining > 0) {
+            tvDashCountdown.visibility = android.view.View.VISIBLE
+            tvDashCountdown.text = String.format("%02d:%02d", localRemaining / 60, localRemaining % 60)
+            tvDashTimer.visibility = android.view.View.GONE
+        } else {
+            tvDashCountdown.visibility = android.view.View.GONE
+            tvDashTimer.visibility = android.view.View.VISIBLE
+        }
         
         val statusColor = when(status) {
             "RED" -> Color.parseColor("#FF3B30")

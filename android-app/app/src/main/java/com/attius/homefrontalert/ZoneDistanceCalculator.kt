@@ -6,7 +6,7 @@ import kotlin.math.cos
 import kotlin.math.sin
 import kotlin.math.sqrt
 
-data class CityLocation(val nameHe: String, val nameEn: String, val lat: Double, val lng: Double)
+data class CityLocation(val nameHe: String, val nameEn: String, val lat: Double, val lng: Double, val countdown: Int = 0)
 
 /**
  * Handles the geographic distance logic between the user and active alert polygons.
@@ -32,11 +32,12 @@ class ZoneDistanceCalculator(private val context: Context) {
                 val cityObj = jsonArray.getJSONObject(i)
                 val zoneNameHe = cityObj.optString("name", "")
                 val zoneNameEn = cityObj.optString("name_en", zoneNameHe)
+                val countdown = cityObj.optInt("countdown", 0)
                 val lat = cityObj.optDouble("lat", 0.0)
                 val lng = cityObj.optDouble("lng", 0.0)
                 
                 if (zoneNameHe.isNotEmpty() && lat != 0.0 && lng != 0.0) {
-                    val location = CityLocation(zoneNameHe, zoneNameEn, lat, lng)
+                    val location = CityLocation(zoneNameHe, zoneNameEn, lat, lng, countdown)
                     zoneCache[zoneNameHe] = location
                     zoneCache[zoneNameEn] = location // Direct English lookup
                     
@@ -104,6 +105,13 @@ class ZoneDistanceCalculator(private val context: Context) {
             return if (lang == "iw" || lang == "he") loc.nameHe else loc.nameEn
         }
         return hebrewName
+    }
+
+    /**
+     * Returns the HFC countdown (seconds to seek shelter) for a zone.
+     */
+    fun getZoneCountdown(name: String): Int {
+        return (zoneCache[name] ?: normalizedCache[normalize(name)])?.countdown ?: 0
     }
 
     /**
