@@ -74,14 +74,6 @@ class SettingsActivity : AppCompatActivity() {
             locationManager.setUsingLiveGps(false)
             switchLiveGps.isChecked = false
             
-            // Force SSOT: Update StatusManager immediately so dashboard is correct
-            val coords = distanceCalculator.getZoneCoordinates(zoneHe)
-            if (coords != null) {
-                StatusManager.updateLocation(this, zoneHe, coords.lat, coords.lng)
-            }
-            
-            refreshSettingsUI()
-            
             Toast.makeText(this, "${getString(R.string.set_home_zone)}: $selection", Toast.LENGTH_SHORT).show()
             val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
             imm.hideSoftInputFromWindow(autoSearch.windowToken, 0)
@@ -315,6 +307,8 @@ class SettingsActivity : AppCompatActivity() {
         val rootUrl = BuildConfig.BACKEND_URL
         var backendResult = "Proxy: Checking..."
         var hfcResult = "Direct HFC: Checking..."
+        var lastAlertProof = ""
+        
         try {
             val url = URL("$rootUrl/health")
             val conn = url.openConnection() as HttpURLConnection
@@ -332,7 +326,25 @@ class SettingsActivity : AppCompatActivity() {
             hfcResult = if (conn.responseCode == 200 || conn.responseCode == 204) "🟢 Direct HFC: OK" else "🟡 Direct HFC: Blocked"
         } catch (e: Exception) { hfcResult = "🔴 Direct HFC: Unavailable" }
 
-        return "$backendResult\n$hfcResult"
+        // Proof of Backend History Capability
+        try {
+            val url = URL("$rootUrl/alerts/history")
+            val conn = url.openConnection() as HttpURLConnection
+            conn.setRequestProperty("X-API-Key", BuildConfig.API_KEY)
+            conn.connectTimeout = 5000
+            if (conn.responseCode == 200) {
+                val body = conn.inputStream.bufferedReader().use { it.readText() }
+                val arr = org.json.JSONArray(body)
+                if (arr.length() > 0) {
+                    val last = arr.getJSONObject(0)
+                    val title = last.optString("title", "Unknown")
+                    val time = last.optString("time", "...")
+                    lastAlertProof = "\n✨ Last Proof: $title @ $time"
+                }
+            }
+        } catch (e: Exception) {}
+
+        return "$backendResult\n$hfcResult$lastAlertProof"
     }
 
     private fun setupLanguageSwitch() {

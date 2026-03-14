@@ -278,14 +278,24 @@ class AppLocationManager(private val context: Context) {
         val mode = getTrackingMode()
         val savedZoneHe = getSavedZoneHe()
         
-        // 1. FIXED MODE: Immediate exit
+        // 1. FIXED MODE: Priority Fallback
         if (mode == LocationTrackingMode.FIXED_ZONE) {
+            // A. Explicit Manual Selection
             if (savedZoneHe != null) {
                 val loc = distanceCalculator.getZoneCoordinates(savedZoneHe)
                 if (loc != null) {
                     return ResolvedLocation(loc.lat, loc.lng, savedZoneHe, false, "SAVED", mode, "Manual")
                 }
             }
+            
+            // B. User Preference: Last Successful GPS/Live Location (Retention)
+            val pLat = sharedPreferences.getString("last_known_lat", null)?.toDoubleOrNull()
+            val pLng = sharedPreferences.getString("last_known_lng", null)?.toDoubleOrNull()
+            val pZone = sharedPreferences.getString("last_known_zone_he", null)
+            if (pLat != null && pLng != null && pZone != null) {
+                return ResolvedLocation(pLat, pLng, pZone, false, "SAVED", mode, "Retained_GPS")
+            }
+
             return ResolvedLocation(DEFAULT_LAT, DEFAULT_LNG, DEFAULT_ZONE_HE, true, "DEFAULT", mode, "Hard_Default")
         }
 
