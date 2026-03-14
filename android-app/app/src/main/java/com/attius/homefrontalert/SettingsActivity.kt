@@ -262,7 +262,7 @@ class SettingsActivity : AppCompatActivity() {
                                 else -> getString(R.string.status_default_zone, finalLocalizedZone)
                             }
 
-                            var displayString = "$finalStatusText\n(${finalRes.provider} | Acc: ${String.format("%.0fm", finalRes.accuracy)})"
+                            var displayString = "$finalStatusText\n(Lat: ${String.format("%.4f", finalRes.lat)}, Lng: ${String.format("%.4f", finalRes.lng)})\n(${finalRes.provider} | Acc: ${String.format("%.0fm", finalRes.accuracy)})"
                             var textColor = if (finalRes.isFallback) android.graphics.Color.parseColor("#FFD60A") else android.graphics.Color.parseColor("#34C759")
     
                             if (!hasLocationPerm) {
