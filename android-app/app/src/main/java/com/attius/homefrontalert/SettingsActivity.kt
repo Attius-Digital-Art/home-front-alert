@@ -242,22 +242,42 @@ class SettingsActivity : AppCompatActivity() {
                         }
     
                         Handler(Looper.getMainLooper()).post {
-                            var finalStatusText = "$statusText\n(${res.provider} | Acc: ${String.format("%.0fm", res.accuracy)})"
-                            var textColor = if (res.isFallback) android.graphics.Color.parseColor("#FFD60A") else android.graphics.Color.parseColor("#34C759")
+                            // SSOT Safety check: Ensure the mode hasn't changed while we were calculating
+                            val currentMode = locationManager.getTrackingMode()
+                            var finalRes = res
+                            if (currentMode == LocationTrackingMode.FIXED_ZONE && res.activeMode == LocationTrackingMode.GPS_LIVE) {
+                                // Background thread was stale, re-resolve for Fixed mode (fast)
+                                finalRes = locationManager.resolveCurrentLocation()
+                            }
+
+                            val finalLocalizedZone = distanceCalculator.getLocalizedName(finalRes.zoneNameHe)
+                            val finalStatusText = when(finalRes.source) {
+                                "GPS" -> getString(R.string.status_gps_locked, finalLocalizedZone)
+                                "SAVED" -> {
+                                    if (finalRes.isFallback && finalRes.activeMode == LocationTrackingMode.GPS_LIVE) 
+                                        getString(R.string.status_gps_searching, finalLocalizedZone) 
+                                    else 
+                                        getString(R.string.status_saved_zone, finalLocalizedZone)
+                                }
+                                else -> getString(R.string.status_default_zone, finalLocalizedZone)
+                            }
+
+                            var displayString = "$finalStatusText\n(${finalRes.provider} | Acc: ${String.format("%.0fm", finalRes.accuracy)})"
+                            var textColor = if (finalRes.isFallback) android.graphics.Color.parseColor("#FFD60A") else android.graphics.Color.parseColor("#34C759")
     
                             if (!hasLocationPerm) {
-                                finalStatusText = "⚠️ Location Permission Denied\n(Click to fix in Settings)"
+                                displayString = "⚠️ Location Permission Denied\n(Click to fix in Settings)"
                                 textColor = android.graphics.Color.parseColor("#FF5252") // Reddish
                                 tvResolvedZone?.setOnClickListener { openAppSettings() }
-                            } else if (!locationEnabled && locationManager.isUsingLiveGps()) {
-                                finalStatusText = "⚠️ GPS is OFF in System Settings\n(Click to fix)"
+                            } else if (!locationEnabled && currentMode == LocationTrackingMode.GPS_LIVE) {
+                                displayString = "⚠️ GPS is OFF in System Settings\n(Click to fix)"
                                 textColor = android.graphics.Color.RED
                                 tvResolvedZone?.setOnClickListener { openLocationSettings() }
                             } else {
                                 tvResolvedZone?.setOnClickListener(null)
                             }
                             
-                            tvResolvedZone?.text = finalStatusText
+                            tvResolvedZone?.text = displayString
                             tvResolvedZone?.setTextColor(textColor)
                             refreshSettingsUI() // Keep UI synced
                         }

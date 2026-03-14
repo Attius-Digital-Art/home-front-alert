@@ -166,11 +166,13 @@ class AppLocationManager(private val context: Context) {
 
         // 3. FAILBACKS (In GPS mode but searching failed)
         
-        // 3a. Persistent Persistence (Last known successfully verified location)
+        // 3a. Persistent Persistence (Last known successfully verified location - 24h TTL)
         val pLat = sharedPreferences.getString("last_known_lat", null)?.toDoubleOrNull()
         val pLng = sharedPreferences.getString("last_known_lng", null)?.toDoubleOrNull()
         val pZone = sharedPreferences.getString("last_known_zone_he", null)
-        if (pLat != null && pLng != null && pZone != null) {
+        val pTime = sharedPreferences.getLong("last_location_update_ms", 0)
+        
+        if (pLat != null && pLng != null && pZone != null && (System.currentTimeMillis() - pTime) < 86400000) {
             return ResolvedLocation(pLat, pLng, pZone, true, "SAVED", mode, "Stored_GPS", -1.0f)
         }
 
