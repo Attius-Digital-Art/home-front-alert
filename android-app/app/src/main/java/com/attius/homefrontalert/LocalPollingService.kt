@@ -31,6 +31,7 @@ class LocalPollingService : Service() {
 
     private lateinit var distanceCalculator: ZoneDistanceCalculator
     private lateinit var toneGenerator: DynamicToneGenerator
+    private lateinit var locationManager: AppLocationManager
     private val recentlyPlayedAlerts = mutableSetOf<String>()
 
     companion object {

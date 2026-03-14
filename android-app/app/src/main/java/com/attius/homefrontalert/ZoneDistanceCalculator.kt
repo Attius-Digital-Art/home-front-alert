@@ -1,6 +1,7 @@
 package com.attius.homefrontalert
 
 import android.content.Context
+import android.util.Log
 import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.sin
