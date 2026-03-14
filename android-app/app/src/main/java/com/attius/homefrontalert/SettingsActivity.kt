@@ -52,6 +52,7 @@ class SettingsActivity : AppCompatActivity() {
         switchLiveGps.isChecked = locationManager.isUsingLiveGps()
         switchLiveGps.setOnCheckedChangeListener { _, isChecked ->
             locationManager.setUsingLiveGps(isChecked)
+            StatusManager.syncUiComponents(this) // Force Dashboard to see the mode change
             refreshSettingsUI()
             val msg = if (isChecked) getString(R.string.mode_gps) else getString(R.string.mode_fixed)
             Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
@@ -65,11 +66,19 @@ class SettingsActivity : AppCompatActivity() {
 
         autoSearch.setOnItemClickListener { parent, _, position, _ ->
             val selection = parent.getItemAtPosition(position) as String
-            locationManager.setSavedZoneHe(distanceCalculator.getZoneCoordinates(selection)?.nameHe ?: selection)
+            val zoneHe = distanceCalculator.getZoneCoordinates(selection)?.nameHe ?: selection
+            locationManager.setSavedZoneHe(zoneHe)
             
             // If user selects a zone, we assume they want to use the FIXED mode
             locationManager.setUsingLiveGps(false)
             switchLiveGps.isChecked = false
+            
+            // Force SSOT: Update StatusManager immediately so dashboard is correct
+            val coords = distanceCalculator.getZoneCoordinates(zoneHe)
+            if (coords != null) {
+                StatusManager.updateLocation(this, zoneHe, coords.lat, coords.lng)
+            }
+            
             refreshSettingsUI()
             
             Toast.makeText(this, "${getString(R.string.set_home_zone)}: $selection", Toast.LENGTH_SHORT).show()
@@ -233,8 +242,8 @@ class SettingsActivity : AppCompatActivity() {
                         }
     
                         Handler(Looper.getMainLooper()).post {
-                            var finalStatusText = statusText
-                            var textColor = android.graphics.Color.parseColor("#FFEB3B") // Yellow
+                            var finalStatusText = "$statusText\n(${res.provider} | Acc: ${String.format("%.0fm", res.accuracy)})"
+                            var textColor = if (res.isFallback) android.graphics.Color.parseColor("#FFD60A") else android.graphics.Color.parseColor("#34C759")
     
                             if (!hasLocationPerm) {
                                 finalStatusText = "⚠️ Location Permission Denied\n(Click to fix in Settings)"
