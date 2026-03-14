@@ -92,6 +92,8 @@ class ZoneDistanceCalculator(private val context: Context) {
             }
         }
         
+        Log.d("HomeFrontAlerts", "ZoneResolve: Closest is $closestZone at ${String.format("%.2f", minDistance)}km")
+        
         return if (closestZone != null) Pair(closestZone, minDistance) else null
     }
 

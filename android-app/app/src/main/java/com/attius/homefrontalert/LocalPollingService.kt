@@ -41,6 +41,8 @@ class LocalPollingService : Service() {
     override fun onCreate() {
         super.onCreate()
         distanceCalculator = ZoneDistanceCalculator(this)
+        locationManager = AppLocationManager.getInstance(this)
+        locationManager.startTracking()
         toneGenerator = DynamicToneGenerator(this)
         createNotificationChannel()
         val notification = createStatusNotification("Direct Shield Active", "GREEN")

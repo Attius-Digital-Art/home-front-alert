@@ -36,7 +36,7 @@ class SettingsActivity : AppCompatActivity() {
 
         setContentView(R.layout.activity_settings)
 
-        locationManager = AppLocationManager(this)
+        locationManager = AppLocationManager.getInstance(this)
         distanceCalculator = ZoneDistanceCalculator(this)
         toneGenerator = DynamicToneGenerator(this)
         sharedPrefs = getSharedPreferences("HomeFrontAlertsPrefs", Context.MODE_PRIVATE)
@@ -262,7 +262,10 @@ class SettingsActivity : AppCompatActivity() {
                                 else -> getString(R.string.status_default_zone, finalLocalizedZone)
                             }
 
-                            var displayString = "$finalStatusText\n(Lat: ${String.format("%.4f", finalRes.lat)}, Lng: ${String.format("%.4f", finalRes.lng)})\n(${finalRes.provider} | Acc: ${String.format("%.0fm", finalRes.accuracy)})"
+                            var displayString = "$finalStatusText\n(Lat: ${String.format("%.4f", finalRes.lat)}, Lng: ${String.format("%.4f", finalRes.lng)})"
+                            if (finalRes.source == "GPS" || (finalRes.source == "SAVED" && finalRes.isFallback)) {
+                                displayString += "\n(${finalRes.provider} | Acc: ${String.format("%.0fm", finalRes.accuracy)})"
+                            }
                             var textColor = if (finalRes.isFallback) android.graphics.Color.parseColor("#FFD60A") else android.graphics.Color.parseColor("#34C759")
     
                             if (!hasLocationPerm) {
@@ -360,6 +363,16 @@ class SettingsActivity : AppCompatActivity() {
 
     private fun openLocationSettings() {
         startActivity(Intent(android.provider.Settings.ACTION_LOCATION_SOURCE_SETTINGS))
+    }
+
+    override fun onResume() {
+        super.onResume()
+        locationManager.startTracking()
+    }
+
+    override fun onPause() {
+        super.onPause()
+        locationManager.stopTracking()
     }
 
     private fun refreshSettingsUI() {
