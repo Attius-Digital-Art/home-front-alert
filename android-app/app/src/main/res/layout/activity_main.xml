@@ -284,6 +284,17 @@
                     android:orientation="vertical">
                     
                     <TextView
+                        android:id="@+id/tvLastThreatLabel"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/last_detected_label"
+                        android:textColor="#FF9800"
+                        android:textSize="10sp"
+                        android:letterSpacing="0.05"
+                        android:textStyle="bold"
+                        android:layout_marginBottom="4dp" />
+
+                    <TextView
                         android:id="@+id/tvLastAlertInfo"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
@@ -301,17 +312,6 @@
                         android:textSize="16sp"
                         android:textStyle="bold"
                         android:layout_marginTop="2dp" />
-
-                    <TextView
-                        android:id="@+id/tvLastThreatLabel"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="@string/last_detected_label"
-                        android:textColor="#FF9800"
-                        android:textSize="10sp"
-                        android:letterSpacing="0.05"
-                        android:textStyle="bold"
-                        android:layout_marginTop="8dp" />
                 </LinearLayout>
             </androidx.cardview.widget.CardView>
 
