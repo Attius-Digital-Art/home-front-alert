@@ -81,7 +81,7 @@ class AppLocationManager(private val context: Context) {
 
     private val locationListener = object : android.location.LocationListener {
         override fun onLocationChanged(location: Location) {
-            Log.d("HomeFrontAlerts", "Location Update: ${location.provider} (${location.latitude}, ${location.longitude}) Acc: ${location.accuracy}")
+            Log.d("HomeFrontAlerts", "SENSOR LOCK: ${location.provider} @ (${location.latitude}, ${location.longitude}) Accuracy: ${location.accuracy}m")
             val mode = getTrackingMode()
             if (mode == LocationTrackingMode.FIXED_ZONE) return
 
@@ -113,11 +113,12 @@ class AppLocationManager(private val context: Context) {
         if (isTracking) return
         try {
             val lm = context.getSystemService(Context.LOCATION_SERVICE) as android.location.LocationManager
+            val looper = Looper.getMainLooper()
             if (lm.isProviderEnabled(android.location.LocationManager.GPS_PROVIDER)) {
-                lm.requestLocationUpdates(android.location.LocationManager.GPS_PROVIDER, 2000L, 5f, locationListener)
+                lm.requestLocationUpdates(android.location.LocationManager.GPS_PROVIDER, 1000L, 0f, locationListener, looper)
             }
             if (lm.isProviderEnabled(android.location.LocationManager.NETWORK_PROVIDER)) {
-                lm.requestLocationUpdates(android.location.LocationManager.NETWORK_PROVIDER, 5000L, 10f, locationListener)
+                lm.requestLocationUpdates(android.location.LocationManager.NETWORK_PROVIDER, 2000L, 0f, locationListener, looper)
             }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && gnssStatusListener != null) {
                 lm.registerGnssStatusCallback(gnssStatusListener, Handler(Looper.getMainLooper()))
