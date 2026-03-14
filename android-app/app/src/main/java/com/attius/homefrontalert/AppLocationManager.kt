@@ -3,6 +3,9 @@ package com.attius.homefrontalert
 import android.annotation.SuppressLint
 import android.content.Context
 import android.location.Location
+import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
@@ -50,9 +53,31 @@ class AppLocationManager(private val context: Context) {
         // Static memory cache shared across all instances (SSOT)
         @Volatile
         private var sharedCachedLocation: ResolvedLocation? = null
+        
+        // Deep Telemetry
+        @Volatile var satellitesInView = 0
+        @Volatile var satellitesUsed = 0
+        @Volatile var avgSnr = 0f
     }
 
     private var isTracking = false
+
+    private val gnssStatusListener = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+        object : android.location.GnssStatus.Callback() {
+            override fun onSatelliteStatusChanged(status: android.location.GnssStatus) {
+                val count = status.satelliteCount
+                var used = 0
+                var snrSum = 0f
+                for (i in 0 until count) {
+                    if (status.usedInFix(i)) used++
+                    snrSum += status.getCn0DbHz(i)
+                }
+                satellitesInView = count
+                satellitesUsed = used
+                avgSnr = if (count > 0) snrSum / count else 0f
+            }
+        }
+    } else null
 
     private val locationListener = object : android.location.LocationListener {
         override fun onLocationChanged(location: Location) {
@@ -94,6 +119,9 @@ class AppLocationManager(private val context: Context) {
             if (lm.isProviderEnabled(android.location.LocationManager.NETWORK_PROVIDER)) {
                 lm.requestLocationUpdates(android.location.LocationManager.NETWORK_PROVIDER, 5000L, 10f, locationListener)
             }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && gnssStatusListener != null) {
+                lm.registerGnssStatusCallback(gnssStatusListener, Handler(Looper.getMainLooper()))
+            }
             isTracking = true
             Log.i("HomeFrontAlerts", "Location tracking started")
         } catch (e: Exception) {
@@ -106,6 +134,9 @@ class AppLocationManager(private val context: Context) {
         try {
             val lm = context.getSystemService(Context.LOCATION_SERVICE) as android.location.LocationManager
             lm.removeUpdates(locationListener)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && gnssStatusListener != null) {
+                lm.unregisterGnssStatusCallback(gnssStatusListener)
+            }
             isTracking = false
             Log.i("HomeFrontAlerts", "Location tracking stopped")
         } catch (e: Exception) {
