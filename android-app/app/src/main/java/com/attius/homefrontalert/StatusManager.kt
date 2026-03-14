@@ -59,7 +59,8 @@ object StatusManager {
         val homeZone = normalizeCity(prefs.getString("current_home_zone", "") ?: "")
         
         val now = System.currentTimeMillis()
-        val cleanedThreats = org.json.JSONObject()
+        val threatTimeoutMs = 1800000L // 30 minutes
+        
         val iter = threats.keys()
         while(iter.hasNext()) {
             val z = iter.next()
@@ -71,8 +72,7 @@ object StatusManager {
         }
         
         // Persist cleaned map
-        prefs.edit().putString("active_threat_map", cleanedThreats.toString()).apply()
-        threats = cleanedThreats
+        prefs.edit().putString("active_threat_map", threats.toString()).apply()
         
         var newStatus = "GREEN"
         if (threats.length() > 0) {
