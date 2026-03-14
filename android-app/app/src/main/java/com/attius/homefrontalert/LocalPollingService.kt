@@ -250,6 +250,7 @@ class LocalPollingService : Service() {
                             val obj = JSONObject()
                             obj.put("t", System.currentTimeMillis())
                             obj.put("s", alertStyle.name)
+                            obj.put("c", distanceCalculator.getZoneCountdown(zone))
                             threats.put(zone, obj)
                         }
                     }
