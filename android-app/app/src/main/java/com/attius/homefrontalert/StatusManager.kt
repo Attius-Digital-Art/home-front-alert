@@ -60,17 +60,13 @@ object StatusManager {
         
         val now = System.currentTimeMillis()
         val cleanedThreats = org.json.JSONObject()
-        val keys = threats.keys()
-        
-        // 30 minute stateful persistence (1,800,000 ms)
-        val threatTimeoutMs = 1800000L 
-
-        while(keys.hasNext()) {
-            val z = keys.next()
+        val iter = threats.keys()
+        while(iter.hasNext()) {
+            val z = iter.next()
             val obj = threats.getJSONObject(z)
-            // Keep threat if it's within the 30-min window
-            if (now - obj.optLong("t", now) < threatTimeoutMs) { 
-                cleanedThreats.put(z, obj)
+            // Remove threat if it's past the 30-min window
+            if (now - obj.optLong("t", now) > threatTimeoutMs) { 
+                iter.remove()
             }
         }
         
