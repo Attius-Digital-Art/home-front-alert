@@ -58,9 +58,15 @@ class AppLocationManager(private val context: Context) {
         @Volatile var satellitesInView = 0
         @Volatile var satellitesUsed = 0
         @Volatile var avgSnr = 0f
+        
+        @Volatile var currentStrategy = "INITIALIZING"
     }
 
+    private enum class Strategy { BRUTAL, MOBILE, STATIONARY }
+    private var activeStrategy: Strategy? = null
+
     private var isTracking = false
+    private val looper = Looper.getMainLooper()
 
     private val gnssStatusListener = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
         object : android.location.GnssStatus.Callback() {
@@ -81,26 +87,40 @@ class AppLocationManager(private val context: Context) {
 
     private val locationListener = object : android.location.LocationListener {
         override fun onLocationChanged(location: Location) {
-            Log.d("HomeFrontAlerts", "SENSOR LOCK: ${location.provider} @ (${location.latitude}, ${location.longitude}) Accuracy: ${location.accuracy}m")
+            val speedKmh = location.speed * 3.6f
+            Log.d("HomeFrontAlerts", "ADAPTIVE LOCK: ${location.provider} @ Spd: ${String.format("%.1f", speedKmh)}km/h, Acc: ${location.accuracy}m")
+            
             val mode = getTrackingMode()
-            if (mode == LocationTrackingMode.FIXED_ZONE) return
+            if (mode != LocationTrackingMode.FIXED_ZONE) {
+                // Determine if we can relax the sensor
+                val newStrategy = when {
+                    location.accuracy > 50 -> Strategy.BRUTAL // Poor signal, stay aggressive
+                    speedKmh > 10 -> Strategy.MOBILE        // Moving fast, stay responsive
+                    speedKmh < 2 -> Strategy.STATIONARY    // Stationary, save battery
+                    else -> Strategy.MOBILE
+                }
+                
+                if (newStrategy != activeStrategy) {
+                    applyStrategy(newStrategy)
+                }
 
-            val zoneInfo = distanceCalculator.getClosestZoneNameAndDistance(location.latitude, location.longitude)
-            if (zoneInfo != null) {
-                val res = ResolvedLocation(
-                    location.latitude, 
-                    location.longitude, 
-                    zoneInfo.first, 
-                    false, 
-                    "GPS", 
-                    mode, 
-                    location.provider ?: "sensor", 
-                    location.accuracy,
-                    System.currentTimeMillis(),
-                    location.isFromMockProvider
-                )
-                updateSessionCache(res)
-                savePersistentLocation(res.lat, res.lng, res.zoneNameHe)
+                val zoneInfo = distanceCalculator.getClosestZoneNameAndDistance(location.latitude, location.longitude)
+                if (zoneInfo != null) {
+                    val res = ResolvedLocation(
+                        location.latitude, 
+                        location.longitude, 
+                        zoneInfo.first, 
+                        false, 
+                        "GPS", 
+                        mode, 
+                        location.provider ?: "sensor", 
+                        location.accuracy,
+                        System.currentTimeMillis(),
+                        location.isFromMockProvider
+                    )
+                    updateSessionCache(res)
+                    savePersistentLocation(res.lat, res.lng, res.zoneNameHe)
+                }
             }
         }
         override fun onStatusChanged(p0: String?, p1: Int, p2: android.os.Bundle?) {}
@@ -109,22 +129,46 @@ class AppLocationManager(private val context: Context) {
     }
 
     @SuppressLint("MissingPermission")
+    private fun applyStrategy(newStrategy: Strategy) {
+        if (!isTracking) return
+        activeStrategy = newStrategy
+        currentStrategy = newStrategy.name
+        
+        try {
+            val lm = context.getSystemService(Context.LOCATION_SERVICE) as android.location.LocationManager
+            lm.removeUpdates(locationListener)
+            
+            val (gpsInterval, gpsDist) = when(newStrategy) {
+                Strategy.BRUTAL -> 1000L to 0f
+                Strategy.MOBILE -> 5000L to 10f
+                Strategy.STATIONARY -> 30000L to 25f
+            }
+
+            if (lm.isProviderEnabled(android.location.LocationManager.GPS_PROVIDER)) {
+                lm.requestLocationUpdates(android.location.LocationManager.GPS_PROVIDER, gpsInterval, gpsDist, locationListener, looper)
+            }
+            if (lm.isProviderEnabled(android.location.LocationManager.NETWORK_PROVIDER)) {
+                // Network is always a good secondary at lower frequency
+                lm.requestLocationUpdates(android.location.LocationManager.NETWORK_PROVIDER, 10000L, 50f, locationListener, looper)
+            }
+            Log.i("HomeFrontAlerts", "Strategy pivoted to $newStrategy (Interval: ${gpsInterval}ms)")
+        } catch (e: Exception) {
+            Log.e("HomeFrontAlerts", "Failed to apply strategy", e)
+        }
+    }
+
+    @SuppressLint("MissingPermission")
     fun startTracking() {
         if (isTracking) return
         try {
+            isTracking = true
+            applyStrategy(Strategy.BRUTAL) // Always start brutal to get initial fix
+            
             val lm = context.getSystemService(Context.LOCATION_SERVICE) as android.location.LocationManager
-            val looper = Looper.getMainLooper()
-            if (lm.isProviderEnabled(android.location.LocationManager.GPS_PROVIDER)) {
-                lm.requestLocationUpdates(android.location.LocationManager.GPS_PROVIDER, 1000L, 0f, locationListener, looper)
-            }
-            if (lm.isProviderEnabled(android.location.LocationManager.NETWORK_PROVIDER)) {
-                lm.requestLocationUpdates(android.location.LocationManager.NETWORK_PROVIDER, 2000L, 0f, locationListener, looper)
-            }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && gnssStatusListener != null) {
                 lm.registerGnssStatusCallback(gnssStatusListener, Handler(Looper.getMainLooper()))
             }
-            isTracking = true
-            Log.i("HomeFrontAlerts", "Location tracking started")
+            Log.i("HomeFrontAlerts", "Location tracking started (Aggressive Initial)")
         } catch (e: Exception) {
             Log.e("HomeFrontAlerts", "Failed to start tracking", e)
         }

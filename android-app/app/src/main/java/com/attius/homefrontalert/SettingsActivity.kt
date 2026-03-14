@@ -273,7 +273,8 @@ class SettingsActivity : AppCompatActivity() {
                             if (finalRes.activeMode == LocationTrackingMode.GPS_LIVE) {
                                 val sats = "Sats: ${AppLocationManager.satellitesUsed}/${AppLocationManager.satellitesInView}"
                                 val snr = "SNR: ${String.format("%.0f", AppLocationManager.avgSnr)}"
-                                displayString += "\n($sats | $snr)"
+                                val strategy = AppLocationManager.currentStrategy
+                                displayString += "\n($sats | $snr | $strategy)"
                             }
 
                             if (finalRes.source == "GPS") {
