@@ -25,6 +25,7 @@
     <string name="mode_fixed">Fixed Identity (Saved Zone)</string>
     <string name="status_gps_locked">GPS Verified: %s</string>
     <string name="status_gps_searching">Searching GPS (Using: %s)</string>
+    <string name="status_gps_searching_short">SEARCHING...</string>
     <string name="status_saved_zone">Zone: %s</string>
     <string name="status_default_zone">Default: %s</string>
 

@@ -177,13 +177,25 @@ class MainActivity : AppCompatActivity() {
                 
                 uiHandler.post {
                     tvLocationZone.text = localizedName
+                    
                     if (res.source == "GPS") {
+                        // Real-time Locked GPS
                         ivLocationStatus.setImageResource(R.drawable.ic_gps_antenna)
                         ivLocationStatus.imageTintList = ColorStateList.valueOf(Color.parseColor("#34C759"))
+                        tvLocationBadge.visibility = android.view.View.GONE
+                    } else if (res.activeMode == LocationTrackingMode.GPS_LIVE) {
+                        // GPS Mode but using a fallback (Searching/Stale)
+                        ivLocationStatus.setImageResource(R.drawable.ic_gps_antenna)
+                        ivLocationStatus.imageTintList = ColorStateList.valueOf(Color.parseColor("#FFD60A"))
+                        tvLocationBadge.visibility = android.view.View.VISIBLE
+                        tvLocationBadge.text = getString(R.string.status_gps_searching_short) // Need to add this
+                        tvLocationBadge.setTextColor(Color.parseColor("#FFD60A"))
                     } else {
+                        // Fixed / Manual Mode
                         ivLocationStatus.setImageResource(R.drawable.ic_manual_location)
-                        val color = if (res.source == "SAVED") Color.parseColor("#546E7A") else Color.parseColor("#424242")
+                        val color = if (res.source == "SAVED") Color.parseColor("#808080") else Color.parseColor("#424242")
                         ivLocationStatus.imageTintList = ColorStateList.valueOf(color)
+                        tvLocationBadge.visibility = android.view.View.GONE
                     }
                 }
             } catch (e: Exception) {
