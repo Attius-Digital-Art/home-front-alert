@@ -24,6 +24,7 @@ class SettingsActivity : AppCompatActivity() {
 
     private lateinit var locationManager: AppLocationManager
     private lateinit var distanceCalculator: ZoneDistanceCalculator
+    private var isResolvingLocation = false
     private lateinit var sharedPrefs: android.content.SharedPreferences
     private lateinit var toneGenerator: DynamicToneGenerator
 
@@ -206,47 +207,53 @@ class SettingsActivity : AppCompatActivity() {
                 }
 
                 // Run location resolution in a background thread
+                if (isResolvingLocation) return
+                isResolvingLocation = true
+                
                 kotlin.concurrent.thread(start = true) {
-                    val lm = getSystemService(Context.LOCATION_SERVICE) as android.location.LocationManager
-                    val isGpsEnabled = lm.isProviderEnabled(android.location.LocationManager.GPS_PROVIDER)
-                    val isNetworkEnabled = lm.isProviderEnabled(android.location.LocationManager.NETWORK_PROVIDER)
-                    val locationEnabled = isGpsEnabled || isNetworkEnabled
-
-                    val res = locationManager.resolveCurrentLocation()
-                    val localizedZone = distanceCalculator.getLocalizedName(res.zoneNameHe)
-                    
-                    val hasLocationPerm = ContextCompat.checkSelfPermission(this@SettingsActivity, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
-                    
-                    val statusText = when(res.source) {
-                        "GPS" -> getString(R.string.status_gps_locked, localizedZone)
-                        "SAVED" -> {
-                            if (res.isFallback && res.activeMode == LocationTrackingMode.GPS_LIVE) 
-                                getString(R.string.status_gps_searching, localizedZone) 
-                            else 
-                                getString(R.string.status_saved_zone, localizedZone)
-                        }
-                        else -> getString(R.string.status_default_zone, localizedZone)
-                    }
-
-                    Handler(Looper.getMainLooper()).post {
-                        var finalStatusText = statusText
-                        var textColor = android.graphics.Color.parseColor("#FFEB3B") // Yellow
-
-                        if (!hasLocationPerm) {
-                            finalStatusText = "⚠️ Location Permission Denied\n(Click to fix in Settings)"
-                            textColor = android.graphics.Color.parseColor("#FF5252") // Reddish
-                            tvResolvedZone?.setOnClickListener { openAppSettings() }
-                        } else if (!locationEnabled && locationManager.isUsingLiveGps()) {
-                            finalStatusText = "⚠️ GPS is OFF in System Settings\n(Click to fix)\n$statusText"
-                            textColor = android.graphics.Color.RED
-                            tvResolvedZone?.setOnClickListener { openLocationSettings() }
-                        } else {
-                            tvResolvedZone?.setOnClickListener(null)
-                        }
+                    try {
+                        val lm = getSystemService(Context.LOCATION_SERVICE) as android.location.LocationManager
+                        val isGpsEnabled = lm.isProviderEnabled(android.location.LocationManager.GPS_PROVIDER)
+                        val locationEnabled = isGpsEnabled
+    
+                        val res = locationManager.resolveCurrentLocation()
+                        val localizedZone = distanceCalculator.getLocalizedName(res.zoneNameHe)
                         
-                        tvResolvedZone?.text = finalStatusText
-                        tvResolvedZone?.setTextColor(textColor)
-                        refreshSettingsUI() // Keep UI synced
+                        val hasLocationPerm = ContextCompat.checkSelfPermission(this@SettingsActivity, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+                        
+                        val statusText = when(res.source) {
+                            "GPS" -> getString(R.string.status_gps_locked, localizedZone)
+                            "SAVED" -> {
+                                if (res.isFallback && res.activeMode == LocationTrackingMode.GPS_LIVE) 
+                                    getString(R.string.status_gps_searching, localizedZone) 
+                                else 
+                                    getString(R.string.status_saved_zone, localizedZone)
+                            }
+                            else -> getString(R.string.status_default_zone, localizedZone)
+                        }
+    
+                        Handler(Looper.getMainLooper()).post {
+                            var finalStatusText = statusText
+                            var textColor = android.graphics.Color.parseColor("#FFEB3B") // Yellow
+    
+                            if (!hasLocationPerm) {
+                                finalStatusText = "⚠️ Location Permission Denied\n(Click to fix in Settings)"
+                                textColor = android.graphics.Color.parseColor("#FF5252") // Reddish
+                                tvResolvedZone?.setOnClickListener { openAppSettings() }
+                            } else if (!locationEnabled && locationManager.isUsingLiveGps()) {
+                                finalStatusText = "⚠️ GPS is OFF in System Settings\n(Click to fix)"
+                                textColor = android.graphics.Color.RED
+                                tvResolvedZone?.setOnClickListener { openLocationSettings() }
+                            } else {
+                                tvResolvedZone?.setOnClickListener(null)
+                            }
+                            
+                            tvResolvedZone?.text = finalStatusText
+                            tvResolvedZone?.setTextColor(textColor)
+                            refreshSettingsUI() // Keep UI synced
+                        }
+                    } finally {
+                        isResolvingLocation = false
                     }
                 }
                 

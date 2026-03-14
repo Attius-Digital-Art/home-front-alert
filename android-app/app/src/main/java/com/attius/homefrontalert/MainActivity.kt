@@ -133,10 +133,7 @@ class MainActivity : AppCompatActivity() {
         val startTime = sharedPrefs.getLong("dash_status_start_ms", System.currentTimeMillis())
         
         if (status != "GREEN" && System.currentTimeMillis() - startTime > 1800000) {
-            sharedPrefs.edit()
-                .putString("dash_status", "GREEN")
-                .putLong("dash_status_start_ms", System.currentTimeMillis())
-                .apply()
+            StatusManager.updateStatus(this, "GREEN")
             return
         }
 

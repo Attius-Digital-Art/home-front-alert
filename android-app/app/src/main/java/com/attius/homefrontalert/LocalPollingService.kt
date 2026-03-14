@@ -7,6 +7,7 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ServiceInfo
 import android.graphics.Color
 import android.os.Build
 import android.os.Handler
@@ -42,9 +43,15 @@ class LocalPollingService : Service() {
         distanceCalculator = ZoneDistanceCalculator(this)
         toneGenerator = DynamicToneGenerator(this)
         createNotificationChannel()
-        startForeground(NOTIFICATION_ID, createStatusNotification("Direct Shield Active", "GREEN"))
+        val notification = createStatusNotification("Direct Shield Active", "GREEN")
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
+        } else {
+            startForeground(NOTIFICATION_ID, notification)
+        }
         
         isRunning = true
+        getSharedPreferences("HomeFrontAlertsPrefs", Context.MODE_PRIVATE).edit().putBoolean("shield_active", true).apply()
         pollingThread = kotlin.concurrent.thread(start = true) {
             while (isRunning) {
                 try {
@@ -60,11 +67,16 @@ class LocalPollingService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.action == "UPDATE_NOTIFICATION") {
+            val status = intent.getStringExtra("status") ?: "GREEN"
+            updateForegroundNotification(status)
+        }
         return START_STICKY
     }
 
     override fun onDestroy() {
         isRunning = false
+        getSharedPreferences("HomeFrontAlertsPrefs", Context.MODE_PRIVATE).edit().putBoolean("shield_active", false).apply()
         pollingThread?.interrupt()
         super.onDestroy()
     }
@@ -190,10 +202,6 @@ class LocalPollingService : Service() {
         sharedPrefs.edit().putString("raw_alert_history", lines.take(5).joinToString("\n")).apply()
     }
 
-    private fun normalizeCity(city: String): String {
-        return city.replace(Regex("[^\\u0590-\\u05FF0-9]"), "")
-    }
-
     private fun processPolledAlertData(jsonStr: String, prefixTag: String) {
         try {
             val root = JSONObject(jsonStr)
@@ -206,100 +214,95 @@ class LocalPollingService : Service() {
             }
             
             val cat = jsonObject.optString("cat", "")
-            val alertId = jsonObject.optString("id", System.currentTimeMillis().toString())
-            val citiesArray = jsonObject.optJSONArray("cities") ?: jsonObject.optJSONArray("data")
+            val alertStyle = AlertStyleRegistry.getStyle(cat, jsonObject.optString("title", ""))
             
-            if (citiesArray != null && citiesArray.length() > 0 && !recentlyPlayedAlerts.contains(alertId)) {
-                val alertedZones = mutableListOf<String>()
-                val normalizedAlertedZones = mutableSetOf<String>()
-                for (i in 0 until citiesArray.length()) {
-                    val z = citiesArray.getString(i)
-                    alertedZones.add(z)
-                    normalizedAlertedZones.add(normalizeCity(z))
-                }
-
-                val sharedPrefs = getSharedPreferences("HomeFrontAlertsPrefs", Context.MODE_PRIVATE)
-                val threatsStr = sharedPrefs.getString("active_threat_map", "{}") ?: "{}"
-                val threats = JSONObject(threatsStr)
-                val alertStyle = AlertStyleRegistry.getStyle(cat, jsonObject.optString("title", ""))
-
-                if (alertStyle == AlertType.CALM) {
-                    alertedZones.forEach { threats.remove(it) }
-                } else {
-                    alertedZones.forEach { zone ->
-                        val obj = JSONObject()
-                        obj.put("t", System.currentTimeMillis())
-                        obj.put("s", alertStyle.name)
-                        threats.put(zone, obj)
-                    }
-                }
-                sharedPrefs.edit().putString("active_threat_map", threats.toString()).apply()
-
-                val locationManager = AppLocationManager(applicationContext)
-                val finalLocation = locationManager.getCurrentLocationSync()
-                val zoneInfo = distanceCalculator.getClosestZoneNameAndDistance(finalLocation.first, finalLocation.second)
-                
-                val currentHomeZone = if (zoneInfo != null && zoneInfo.second < 150.0) zoneInfo.first else "Out of Range"
-                val userNormalizedZone = normalizeCity(currentHomeZone)
-                
-                sharedPrefs.edit()
-                    .putString("current_home_zone", currentHomeZone)
-                    .putString("last_known_lat", finalLocation.first.toString())
-                    .putString("last_known_lng", finalLocation.second.toString())
-                    .apply()
-
-                if (alertStyle != AlertType.CALM) {
-                    val distances = distanceCalculator.calculateDistancesToAlerts(finalLocation.first, finalLocation.second, alertedZones)
-                    val closest = if (distances.isNotEmpty()) distances.min() else -1.0
-                    
-                    sharedPrefs.edit()
-                        .putString("last_alert_zones", alertedZones.joinToString(", "))
-                        .putFloat("last_alert_dist", closest.toFloat())
-                        .putLong("last_alert_time", System.currentTimeMillis())
-                        .apply()
-
-                    val volume = sharedPrefs.getFloat("alert_volume", 1.0f)
-                    recentlyPlayedAlerts.add(alertId)
-                    if (recentlyPlayedAlerts.size > 100) recentlyPlayedAlerts.remove(recentlyPlayedAlerts.first())
-                    toneGenerator.playTonesForDistances(distances, volume, alertStyle)
-                } else {
-                    if (userNormalizedZone.isNotEmpty() && normalizedAlertedZones.contains(userNormalizedZone)) {
-                        toneGenerator.playTonesForDistances(emptyList(), sharedPrefs.getFloat("alert_volume", 1.0f), AlertType.CALM)
-                    }
-                }
-                updateDashboardStatus()
+            var processedId = jsonObject.optString("id", System.currentTimeMillis().toString())
+            if (alertStyle == AlertType.CALM) {
+                processedId += "_clear"
             }
+            val alertId = processedId
+            
+            val citiesArray = jsonObject.optJSONArray("cities") ?: jsonObject.optJSONArray("data")
+            val citiesCount = citiesArray?.length() ?: 0
+            
+            Log.d("HomeFrontAlerts", "[Shield] Processing Alert ID: $alertId | Style: $alertStyle | Cities: $citiesCount")
+
+            if (citiesArray != null && citiesArray.length() > 0) {
+                if (recentlyPlayedAlerts.contains(alertId)) {
+                    Log.d("HomeFrontAlerts", "[Shield] Alert ID $alertId already in cache. Skipping audio/record.")
+                } else {
+                    val alertedZones = mutableListOf<String>()
+                    val normalizedAlertedZones = mutableSetOf<String>()
+                    for (i in 0 until citiesArray.length()) {
+                        val z = citiesArray.getString(i)
+                        alertedZones.add(z)
+                        normalizedAlertedZones.add(StatusManager.normalizeCity(z))
+                    }
+
+                    val sharedPrefs = getSharedPreferences("HomeFrontAlertsPrefs", Context.MODE_PRIVATE)
+                    val threatsStr = sharedPrefs.getString("active_threat_map", "{}") ?: "{}"
+                    val threats = JSONObject(threatsStr)
+
+                    if (alertStyle == AlertType.CALM) {
+                        alertedZones.forEach { threats.remove(it) }
+                    } else {
+                        alertedZones.forEach { zone ->
+                            val obj = JSONObject()
+                            obj.put("t", System.currentTimeMillis())
+                            obj.put("s", alertStyle.name)
+                            threats.put(zone, obj)
+                        }
+                    }
+                    sharedPrefs.edit().putString("active_threat_map", threats.toString()).apply()
+
+                    val locationManager = AppLocationManager(applicationContext)
+                    val res = locationManager.resolveCurrentLocation() 
+                    val finalLocation = Pair(res.lat, res.lng)
+                    val currentHomeZone = res.zoneNameHe
+                    val userNormalizedZone = StatusManager.normalizeCity(currentHomeZone)
+                    
+                    StatusManager.updateLocation(this, currentHomeZone, res.lat, res.lng)
+
+                    if (alertStyle != AlertType.CALM) {
+                        val distances = distanceCalculator.calculateDistancesToAlerts(finalLocation.first, finalLocation.second, alertedZones)
+                        val closest = if (distances.isNotEmpty()) distances.min() else -1.0
+                        
+                        Log.d("HomeFrontAlerts", "[Shield] Style: $alertStyle | Count: ${alertedZones.size} | MinDist: $closest km")
+
+                        sharedPrefs.edit()
+                            .putString("last_alert_zones", alertedZones.joinToString(", "))
+                            .putFloat("last_alert_dist", closest.toFloat())
+                            .putLong("last_alert_time", System.currentTimeMillis())
+                            .apply()
+
+                        val volume = sharedPrefs.getFloat("alert_volume", 1.0f)
+                        recentlyPlayedAlerts.add(processedId)
+                        if (recentlyPlayedAlerts.size > 100) recentlyPlayedAlerts.remove(recentlyPlayedAlerts.first())
+                        val isLocal = normalizedAlertedZones.contains(userNormalizedZone)
+                        
+                        if (distances.isNotEmpty()) {
+                            toneGenerator.playTonesForDistances(distances, volume, alertStyle, isLocal)
+                        } else if (isLocal) {
+                            // If cartography fails but we know it's local by name, still play local urgency
+                            toneGenerator.playTonesForDistances(listOf(0.0), volume, alertStyle, true)
+                        } else {
+                            Log.d("HomeFrontAlerts", "[Shield] No distances found. Sound skipped.")
+                        }
+                    } else {
+                        val isLocal = normalizedAlertedZones.contains(userNormalizedZone)
+                        recentlyPlayedAlerts.add(processedId) 
+                        if (recentlyPlayedAlerts.size > 100) recentlyPlayedAlerts.remove(recentlyPlayedAlerts.first())
+                        if (userNormalizedZone.isNotEmpty() && isLocal) {
+                            toneGenerator.playTonesForDistances(emptyList(), sharedPrefs.getFloat("alert_volume", 1.0f), AlertType.CALM, true)
+                        }
+                    }
+                }
+            }
+            // Move status update outside the ID check so repeat polls still ensure consistency
+            StatusManager.recalculateStatus(this)
         } catch (e: Exception) {
             Log.e("HomeFrontAlerts", "Shield Parse Error: ${e.message}")
         }
-    }
-
-    private fun updateDashboardStatus() {
-        val sharedPrefs = getSharedPreferences("HomeFrontAlertsPrefs", Context.MODE_PRIVATE)
-        val threatsStr = sharedPrefs.getString("active_threat_map", "{}") ?: "{}"
-        val threats = JSONObject(threatsStr)
-        val homeZone = normalizeCity(sharedPrefs.getString("current_home_zone", "") ?: "")
-        
-        var newStatus = "GREEN"
-        if (threats.length() > 0) {
-            newStatus = "YELLOW"
-            val iter = threats.keys()
-            while(iter.hasNext()) {
-                val zone = iter.next()
-                val obj = threats.getJSONObject(zone)
-                if (normalizeCity(zone) == homeZone) {
-                    newStatus = if (obj.optString("s") == "URGENT") "RED" else "ORANGE"
-                    if (newStatus == "RED") break
-                }
-            }
-        }
-
-        val oldStatus = sharedPrefs.getString("dash_status", "GREEN")
-        if (newStatus != oldStatus) {
-            sharedPrefs.edit().putString("dash_status", newStatus).putLong("dash_status_start_ms", System.currentTimeMillis()).apply()
-            updateForegroundNotification(newStatus)
-        }
-        StatusWidgetProvider.updateAllWidgets(this)
     }
 
     private fun updateForegroundNotification(status: String) {

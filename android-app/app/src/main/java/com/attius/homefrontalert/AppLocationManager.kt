@@ -103,7 +103,7 @@ class AppLocationManager(private val context: Context) {
 
                 // If not fresh or null, try a fresh high-accuracy hit
                 val locationTask = fusedLocationClient.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, null)
-                val location: Location? = Tasks.await(locationTask, 6, java.util.concurrent.TimeUnit.SECONDS)
+                val location: Location? = Tasks.await(locationTask, 10, java.util.concurrent.TimeUnit.SECONDS)
                 
                 if (location != null) {
                     val zoneInfo = distanceCalculator.getClosestZoneNameAndDistance(location.latitude, location.longitude)
@@ -147,11 +147,7 @@ class AppLocationManager(private val context: Context) {
     }
 
     private fun savePersistentLocation(lat: Double, lng: Double, zoneHe: String) {
-        sharedPreferences.edit()
-            .putString("last_known_lat", lat.toString())
-            .putString("last_known_lng", lng.toString())
-            .putString("last_known_zone_he", zoneHe)
-            .apply()
+        StatusManager.updateLocation(context, zoneHe, lat, lng)
     }
 
     /**

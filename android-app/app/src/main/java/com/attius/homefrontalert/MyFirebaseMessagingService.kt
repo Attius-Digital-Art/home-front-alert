@@ -57,24 +57,45 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
                     // 3. Let our Cartography module calculate distances to every active polygon
                     val distances = distanceCalculator.calculateDistancesToAlerts(userLat, userLng, alertedZones)
 
-                        Log.d("HomeFrontAlerts", "Calculated Distances KM: $distances")
+                    Log.d("HomeFrontAlerts", "Calculated Distances KM: $distances")
 
-                        // 4. Feed the distances directly into the Hardware Synthesizer 
-                        if (distances.isNotEmpty()) {
-                            val sharedPrefs = getSharedPreferences("HomeFrontAlertsPrefs", android.content.Context.MODE_PRIVATE)
-                            val volume = sharedPrefs.getFloat("alert_volume", 1.0f)
-                            toneGenerator.playTonesForDistances(distances, volume)
+                    val alertTypeEnum = AlertStyleRegistry.getStyle("", alertType ?: "")
+                    val userNormalizedZone = StatusManager.normalizeCity(res.zoneNameHe)
+                    val normalizedAlertedZones = alertedZones.map { StatusManager.normalizeCity(it) }
+                    val isLocal = userNormalizedZone.isNotEmpty() && normalizedAlertedZones.contains(userNormalizedZone)
 
-                            // Update Dashboard history for consistent UI
-                            val closest = distances.minOrNull() ?: 0.0
-                            sharedPrefs.edit()
-                                .putString("last_alert_zones", alertedZones.joinToString(", "))
-                                .putFloat("last_alert_dist", closest.toFloat())
-                                .putLong("last_alert_time", System.currentTimeMillis())
-                                .apply()
-                        } else {
-                            Log.d("HomeFrontAlerts", "Distances array empty. Zones were not found in cache.")
+                    val sharedPrefs = getSharedPreferences("HomeFrontAlertsPrefs", android.content.Context.MODE_PRIVATE)
+                    
+                    // Update Active Threat Map instantly for SSOT
+                    val threatsStr = sharedPrefs.getString("active_threat_map", "{}") ?: "{}"
+                    val threats = org.json.JSONObject(threatsStr)
+                    if (alertTypeEnum == AlertType.CALM) {
+                        alertedZones.forEach { threats.remove(it) }
+                    } else {
+                        alertedZones.forEach { zone ->
+                            val obj = org.json.JSONObject()
+                            obj.put("t", System.currentTimeMillis())
+                            obj.put("s", alertTypeEnum.name)
+                            threats.put(zone, obj)
                         }
+                    }
+                    sharedPrefs.edit().putString("active_threat_map", threats.toString()).apply()
+
+                    if (distances.isNotEmpty() || (alertTypeEnum == AlertType.CALM && isLocal)) {
+                        val volume = sharedPrefs.getFloat("alert_volume", 1.0f)
+                        toneGenerator.playTonesForDistances(distances, volume, alertTypeEnum, isLocal)
+
+                        // Update Dashboard history
+                        val closest = if (distances.isNotEmpty()) distances.min() else 0.0
+                        sharedPrefs.edit()
+                            .putString("last_alert_zones", alertedZones.joinToString(", "))
+                            .putFloat("last_alert_dist", closest.toFloat())
+                            .putLong("last_alert_time", System.currentTimeMillis())
+                            .apply()
+                    }
+                    
+                    // Sync dashboard status immediately
+                    StatusManager.recalculateStatus(this)
 
                 } catch (e: Exception) {
                     Log.e("HomeFrontAlerts", "Failed to parse cities payload", e)

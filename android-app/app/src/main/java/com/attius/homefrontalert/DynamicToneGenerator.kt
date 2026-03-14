@@ -55,7 +55,7 @@ class DynamicToneGenerator(private val context: Context) {
      * Tones are dynamically shortened if there are many locations to ensure we fit
      * within the ~2 second polling cycle.
      */
-    fun playTonesForDistances(distancesKm: List<Double>, volume: Float = 1.0f, type: AlertType = AlertType.URGENT) {
+    fun playTonesForDistances(distancesKm: List<Double>, volume: Float = 1.0f, type: AlertType = AlertType.URGENT, isLocal: Boolean = false) {
         // Only URGENT requires a distance array to calculate frequencies. CAUTION and CALM have fixed tones.
         if (distancesKm.isEmpty() && type == AlertType.URGENT) return
         
@@ -78,7 +78,7 @@ class DynamicToneGenerator(private val context: Context) {
         thread {
             when (type) {
                 AlertType.URGENT -> playUrgentSequence(distancesKm, finalVolume)
-                AlertType.CAUTION -> playCautionSequence(finalVolume)
+                AlertType.CAUTION -> playCautionSequence(finalVolume, isLocal)
                 AlertType.CALM -> playCalmTone(finalVolume)
             }
         }
@@ -129,17 +129,19 @@ class DynamicToneGenerator(private val context: Context) {
             pauseDur = max(10, pauseDur)
         }
 
-        // 4. Target Area Extension: If any alert is in the user's immediate area (0km),
-        // we append a 1-second long "Impact/Immediate" tone at the end of the sequence.
-        val hasImmediateThreat = distancesKm.any { it <= 0.0 }
-        
-        playToneSequence(frequencies, toneDur, pauseDur, volume, finalToneOverrideMs = if (hasImmediateThreat) 1000 else null)
+        // 4. Target Area Extension: If the alert is localized to the user's specific zone,
+        // we append a 2-second sustained "Immediate" tone at the end of the sequence.
+        playToneSequence(frequencies, toneDur, pauseDur, volume, finalToneOverrideMs = if (isLocal) 2000 else null)
     }
 
-    private fun playCautionSequence(volume: Float) {
-        // "121212" pattern: Alternating tones (increased to 6 per user request)
-        // Using 440Hz (A4) and 554.37Hz (C#5) for a distinct "caution" interval
-        val frequencies = listOf(440.0, 554.37, 440.0, 554.37, 440.0, 554.37)
+    private fun playCautionSequence(volume: Float, isLocal: Boolean) {
+        // Pattern 1212...
+        // Generic: 4 tones. Local (same zone): 6 tones.
+        val count = if (isLocal) 6 else 4
+        val frequencies = mutableListOf<Double>()
+        for (i in 0 until count) {
+            frequencies.add(if (i % 2 == 0) 440.0 else 554.37)
+        }
         playToneSequence(frequencies, 150, 50, volume)
     }
 
