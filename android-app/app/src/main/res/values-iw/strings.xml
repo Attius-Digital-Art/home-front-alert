@@ -12,9 +12,9 @@
     <string name="last_detected_threat">איום אחרון שזוהה</string>
     <string name="detected_ago">זוהה לפני %s</string>
     <string name="distance">מרחק: %s ק"מ</string>
-    <string name="unit_seconds_short">ש'</string>
-    <string name="unit_minutes_short">דק'</string>
-    <string name="unit_hours_short">שע'</string>
+    <string name="unit_seconds_short">ש\'</string>
+    <string name="unit_minutes_short">דק\'</string>
+    <string name="unit_hours_short">שע\'</string>
     <string name="remote_alert">מרוחק / לא ידוע</string>
     <string name="settings_title">לוח בקרה פיקוד העורף</string>
     <string name="default_museum_he">מוזיאון ישראל, ירושלים</string>
