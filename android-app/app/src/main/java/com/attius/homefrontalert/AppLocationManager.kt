@@ -50,7 +50,7 @@ class AppLocationManager(private val context: Context) {
     fun setTrackingMode(mode: LocationTrackingMode) {
         sharedPreferences.edit().putString("tracking_mode", mode.name).apply()
         // Clear session cache when switching modes to prevent SSOT violations (e.g. old GPS showing in Fixed mode)
-        cachedLocation = null
+        sharedCachedLocation = null
     }
 
     /**
