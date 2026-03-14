@@ -85,47 +85,58 @@ class AppLocationManager(private val context: Context) {
         }
     } else null
 
+    private val fusedLocationCallback = object : com.google.android.gms.location.LocationCallback() {
+        override fun onLocationResult(result: com.google.android.gms.location.LocationResult) {
+            result.lastLocation?.let { handleNewLocation(it, "fused_adaptive") }
+        }
+    }
+
     private val locationListener = object : android.location.LocationListener {
         override fun onLocationChanged(location: Location) {
-            val speedKmh = location.speed * 3.6f
-            Log.d("HomeFrontAlerts", "ADAPTIVE LOCK: ${location.provider} @ Spd: ${String.format("%.1f", speedKmh)}km/h, Acc: ${location.accuracy}m")
-            
-            val mode = getTrackingMode()
-            if (mode != LocationTrackingMode.FIXED_ZONE) {
-                // Determine if we can relax the sensor
-                val newStrategy = when {
-                    location.accuracy > 50 -> Strategy.BRUTAL // Poor signal, stay aggressive
-                    speedKmh > 10 -> Strategy.MOBILE        // Moving fast, stay responsive
-                    speedKmh < 2 -> Strategy.STATIONARY    // Stationary, save battery
-                    else -> Strategy.MOBILE
-                }
-                
-                if (newStrategy != activeStrategy) {
-                    applyStrategy(newStrategy)
-                }
-
-                val zoneInfo = distanceCalculator.getClosestZoneNameAndDistance(location.latitude, location.longitude)
-                if (zoneInfo != null) {
-                    val res = ResolvedLocation(
-                        location.latitude, 
-                        location.longitude, 
-                        zoneInfo.first, 
-                        false, 
-                        "GPS", 
-                        mode, 
-                        location.provider ?: "sensor", 
-                        location.accuracy,
-                        System.currentTimeMillis(),
-                        location.isFromMockProvider
-                    )
-                    updateSessionCache(res)
-                    savePersistentLocation(res.lat, res.lng, res.zoneNameHe)
-                }
-            }
+            handleNewLocation(location, location.provider ?: "sensor")
         }
         override fun onStatusChanged(p0: String?, p1: Int, p2: android.os.Bundle?) {}
         override fun onProviderEnabled(p0: String) {}
         override fun onProviderDisabled(p0: String) {}
+    }
+
+    private fun handleNewLocation(location: Location, providerLabel: String) {
+        val speedKmh = location.speed * 3.6f
+        Log.d("HomeFrontAlerts", "LOCK: $providerLabel @ Spd: ${String.format("%.1f", speedKmh)}km/h, Acc: ${location.accuracy}m")
+        
+        val mode = getTrackingMode()
+        if (mode == LocationTrackingMode.FIXED_ZONE) return
+
+        // 1. Adaptive Intelligence
+        val newStrategy = when {
+            location.accuracy > 50 -> Strategy.BRUTAL 
+            speedKmh > 10 -> Strategy.MOBILE        
+            speedKmh < 2 -> Strategy.STATIONARY    
+            else -> Strategy.MOBILE
+        }
+        
+        if (newStrategy != activeStrategy) {
+            applyStrategy(newStrategy)
+        }
+
+        // 2. Resolve to Zone
+        val zoneInfo = distanceCalculator.getClosestZoneNameAndDistance(location.latitude, location.longitude)
+        if (zoneInfo != null) {
+            val res = ResolvedLocation(
+                location.latitude, 
+                location.longitude, 
+                zoneInfo.first, 
+                false, 
+                "GPS", 
+                mode, 
+                providerLabel, 
+                location.accuracy,
+                System.currentTimeMillis(),
+                location.isFromMockProvider
+            )
+            updateSessionCache(res)
+            savePersistentLocation(res.lat, res.lng, res.zoneNameHe)
+        }
     }
 
     @SuppressLint("MissingPermission")
@@ -136,24 +147,39 @@ class AppLocationManager(private val context: Context) {
         
         try {
             val lm = context.getSystemService(Context.LOCATION_SERVICE) as android.location.LocationManager
-            lm.removeUpdates(locationListener)
             
-            val (gpsInterval, gpsDist) = when(newStrategy) {
-                Strategy.BRUTAL -> 1000L to 0f
-                Strategy.MOBILE -> 5000L to 10f
-                Strategy.STATIONARY -> 30000L to 25f
+            // 1. Clean up old requests
+            lm.removeUpdates(locationListener)
+            fusedLocationClient.removeLocationUpdates(fusedLocationCallback)
+            
+            // 2. Deploy Dual-Engine requests
+            when(newStrategy) {
+                Strategy.BRUTAL -> {
+                    // Raw Hardware Fix (Always on, high frequency)
+                    lm.requestLocationUpdates(android.location.LocationManager.GPS_PROVIDER, 1000L, 0f, locationListener, looper)
+                    lm.requestLocationUpdates(android.location.LocationManager.NETWORK_PROVIDER, 2000L, 0f, locationListener, looper)
+                }
+                Strategy.MOBILE -> {
+                    // Hybrid: Fused for general, throttled GPS for precision while moving
+                    val req = com.google.android.gms.location.LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 5000L)
+                        .setMinUpdateIntervalMillis(2000L)
+                        .setWaitForAccurateLocation(false)
+                        .build()
+                    fusedLocationClient.requestLocationUpdates(req, fusedLocationCallback, looper)
+                    
+                    lm.requestLocationUpdates(android.location.LocationManager.GPS_PROVIDER, 10000L, 20f, locationListener, looper)
+                }
+                Strategy.STATIONARY -> {
+                    // Battery Saver: Fused only (Passive location where possible)
+                    val req = com.google.android.gms.location.LocationRequest.Builder(Priority.PRIORITY_BALANCED_POWER_ACCURACY, 30000L)
+                        .setMinUpdateIntervalMillis(15000L)
+                        .build()
+                    fusedLocationClient.requestLocationUpdates(req, fusedLocationCallback, looper)
+                }
             }
-
-            if (lm.isProviderEnabled(android.location.LocationManager.GPS_PROVIDER)) {
-                lm.requestLocationUpdates(android.location.LocationManager.GPS_PROVIDER, gpsInterval, gpsDist, locationListener, looper)
-            }
-            if (lm.isProviderEnabled(android.location.LocationManager.NETWORK_PROVIDER)) {
-                // Network is always a good secondary at lower frequency
-                lm.requestLocationUpdates(android.location.LocationManager.NETWORK_PROVIDER, 10000L, 50f, locationListener, looper)
-            }
-            Log.i("HomeFrontAlerts", "Strategy pivoted to $newStrategy (Interval: ${gpsInterval}ms)")
+            Log.i("HomeFrontAlerts", "Engine optimized for $newStrategy")
         } catch (e: Exception) {
-            Log.e("HomeFrontAlerts", "Failed to apply strategy", e)
+            Log.e("HomeFrontAlerts", "Failed to apply engine strategy", e)
         }
     }
 
@@ -179,6 +205,8 @@ class AppLocationManager(private val context: Context) {
         try {
             val lm = context.getSystemService(Context.LOCATION_SERVICE) as android.location.LocationManager
             lm.removeUpdates(locationListener)
+            fusedLocationClient.removeLocationUpdates(fusedLocationCallback)
+            
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && gnssStatusListener != null) {
                 lm.unregisterGnssStatusCallback(gnssStatusListener)
             }
