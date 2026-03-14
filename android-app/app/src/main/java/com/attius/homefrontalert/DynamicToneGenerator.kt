@@ -77,7 +77,7 @@ class DynamicToneGenerator(private val context: Context) {
 
         thread {
             when (type) {
-                AlertType.URGENT -> playUrgentSequence(distancesKm, finalVolume)
+                AlertType.URGENT -> playUrgentSequence(distancesKm, finalVolume, isLocal)
                 AlertType.CAUTION -> playCautionSequence(finalVolume, isLocal)
                 AlertType.CALM -> playCalmTone(finalVolume)
             }
@@ -100,7 +100,7 @@ class DynamicToneGenerator(private val context: Context) {
         }
     }
 
-    private fun playUrgentSequence(distancesKm: List<Double>, volume: Float) {
+    private fun playUrgentSequence(distancesKm: List<Double>, volume: Float, isLocal: Boolean) {
         if (distancesKm.isEmpty()) return
 
         // 1. Sort distances: Far to Near (High pitch to Low pitch)
