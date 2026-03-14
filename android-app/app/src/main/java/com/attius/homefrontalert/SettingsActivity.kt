@@ -9,6 +9,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import android.widget.*
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
@@ -259,11 +260,16 @@ class SettingsActivity : AppCompatActivity() {
                                     else 
                                         getString(R.string.status_saved_zone, finalLocalizedZone)
                                 }
-                                else -> getString(R.string.status_default_zone, finalLocalizedZone)
+                                else -> {
+                                    if (finalRes.activeMode == LocationTrackingMode.GPS_LIVE)
+                                        getString(R.string.status_gps_searching, finalLocalizedZone)
+                                    else
+                                        getString(R.string.status_default_zone, finalLocalizedZone)
+                                }
                             }
 
                             var displayString = "$finalStatusText\n(Lat: ${String.format("%.4f", finalRes.lat)}, Lng: ${String.format("%.4f", finalRes.lng)})"
-                            if (finalRes.source == "GPS" || (finalRes.source == "SAVED" && finalRes.isFallback)) {
+                            if (finalRes.source == "GPS") {
                                 displayString += "\n(${finalRes.provider} | Acc: ${String.format("%.0fm", finalRes.accuracy)})"
                             }
                             var textColor = if (finalRes.isFallback) android.graphics.Color.parseColor("#FFD60A") else android.graphics.Color.parseColor("#34C759")
