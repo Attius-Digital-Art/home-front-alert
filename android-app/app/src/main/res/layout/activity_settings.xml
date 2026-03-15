@@ -247,6 +247,61 @@
                 </LinearLayout>
             </androidx.cardview.widget.CardView>
 
+            <!-- ALERT SOURCE SELECTOR (PRO ONLY — shown/hidden in SettingsActivity) -->
+            <androidx.cardview.widget.CardView
+                android:id="@+id/cardAlertSource"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="16dp"
+                android:backgroundTint="#1A2A1A"
+                android:elevation="4dp"
+                android:visibility="gone">
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:padding="16dp"
+                    android:orientation="vertical">
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="Alert Source"
+                        android:textStyle="bold"
+                        android:textColor="#FFFFFF"
+                        android:textSize="15sp"
+                        android:layout_marginBottom="4dp" />
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="Backend (FCM) is instant and battery-efficient. Direct HFC polls the official feed every 2s from your device."
+                        android:textColor="#808080"
+                        android:textSize="11sp"
+                        android:layout_marginBottom="12dp" />
+                    <RadioGroup
+                        android:id="@+id/rgAlertSource"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical">
+                        <RadioButton
+                            android:id="@+id/rbSourceFcm"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:text="⚡ Backend (FCM)  — server push, instant"
+                            android:textColor="#FFFFFF"
+                            android:textSize="13sp"
+                            android:buttonTint="#4CAF50"
+                            android:layout_marginBottom="6dp" />
+                        <RadioButton
+                            android:id="@+id/rbSourceDirectHfc"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:text="📡 Direct HFC  — 2s polling, your network"
+                            android:textColor="#FFFFFF"
+                            android:textSize="13sp"
+                            android:buttonTint="#4CAF50" />
+                    </RadioGroup>
+                </LinearLayout>
+            </androidx.cardview.widget.CardView>
+
             <!-- ADVANCED TOGGLE -->
             <LinearLayout
                 android:layout_width="match_parent"
@@ -336,6 +391,30 @@
                                 android:text="ALL CLEAR"
                                 android:textSize="10sp"
                                 android:backgroundTint="#4CAF50" />
+                        </LinearLayout>
+
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:background="#000000"
+                            android:padding="8dp"
+                            android:layout_marginTop="8dp"
+                            android:orientation="vertical">
+                            <TextView
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:text="RECENT FCM INBOUND:"
+                                android:textColor="#FF69B4"
+                                android:textSize="10sp"
+                                android:layout_marginBottom="4dp" />
+                            <TextView
+                                android:id="@+id/tvFcmHistory"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:text="Waiting for FCM..."
+                                android:textColor="#FF69B4"
+                                android:textSize="10sp"
+                                android:fontFamily="monospace" />
                         </LinearLayout>
                     </LinearLayout>
                 </androidx.cardview.widget.CardView>
@@ -508,5 +587,17 @@
             </LinearLayout> <!-- End of Advanced Section -->
 
         </LinearLayout>
+        <TextView
+            android:id="@+id/tvAppVersion"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="v1.6.0"
+            android:textColor="#444444"
+            android:textSize="11sp"
+            android:textAlignment="center"
+            android:fontFamily="monospace"
+            android:paddingTop="8dp"
+            android:paddingBottom="16dp" />
+
     </ScrollView>
 </LinearLayout>

@@ -36,7 +36,11 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
                     for (i in 0 until citiesArray.length()) cities.add(citiesArray.getString(i))
 
                     val type = AlertStyleRegistry.getStyle("", alertType ?: "")
-                    StatusManager.processAlert(this, alertId, type, cities, "[FCM]", toneGenerator)
+                    
+                    // Log raw FCM metadata for diagnostics
+                    StatusManager.logFcmDiagnostic(this, remoteMessage.data.toString())
+                    
+                    StatusManager.processAlert(this, alertId, type, cities, "[FCM]", toneGenerator, remoteMessage.data.toString())
 
                 } catch (e: Exception) {
                     Log.e("HomeFrontAlerts", "FCM processing failed: ${e.message}")

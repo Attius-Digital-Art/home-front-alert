@@ -157,6 +157,10 @@ class SettingsActivity : AppCompatActivity() {
             }
         }
 
+        // Version footer — always matches APK filename
+        val flavor = if (BuildConfig.IS_PAID) "pro" else "standard"
+        findViewById<TextView>(R.id.tvAppVersion).text = "v${BuildConfig.VERSION_NAME}-$flavor"
+
         // 6. Advanced Section
         val switchShowAdvanced = findViewById<Switch>(R.id.switchShowAdvanced)
         val layoutAdvancedSection = findViewById<LinearLayout>(R.id.layoutAdvancedSection)
@@ -166,6 +170,50 @@ class SettingsActivity : AppCompatActivity() {
         switchShowAdvanced.setOnCheckedChangeListener { _, isChecked ->
             layoutAdvancedSection.visibility = if (isChecked) android.view.View.VISIBLE else android.view.View.GONE
             sharedPrefs.edit().putBoolean("show_advanced_settings", isChecked).apply()
+        }
+
+        // 6b. Alert Source Selector (PRO only)
+        val cardAlertSource = findViewById<androidx.cardview.widget.CardView>(R.id.cardAlertSource)
+        val rgAlertSource = findViewById<RadioGroup>(R.id.rgAlertSource)
+        val rbSourceFcm = findViewById<RadioButton>(R.id.rbSourceFcm)
+        val rbSourceDirectHfc = findViewById<RadioButton>(R.id.rbSourceDirectHfc)
+
+        if (BuildConfig.IS_PAID) {
+            cardAlertSource.visibility = android.view.View.VISIBLE
+            // Reflect current state: shield_active = Direct HFC mode
+            if (sharedPrefs.getBoolean("shield_active", false)) {
+                rbSourceDirectHfc.isChecked = true
+            } else {
+                rbSourceFcm.isChecked = true
+            }
+            rgAlertSource.setOnCheckedChangeListener { _, checkedId ->
+                when (checkedId) {
+                    R.id.rbSourceFcm -> {
+                        // Switch to FCM mode: stop LocalPollingService
+                        sharedPrefs.edit().putBoolean("shield_active", false).apply()
+                        stopService(Intent(this, LocalPollingService::class.java))
+                        Toast.makeText(this, "⚡ Backend (FCM) active", Toast.LENGTH_SHORT).show()
+                    }
+                    R.id.rbSourceDirectHfc -> {
+                        // Switch to Direct HFC mode: start LocalPollingService
+                        val hasLocation = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+                        if (!hasLocation) {
+                            Toast.makeText(this, "Location permission required for Direct HFC", Toast.LENGTH_LONG).show()
+                            rbSourceFcm.isChecked = true
+                            requestCriticalPermissions()
+                            return@setOnCheckedChangeListener
+                        }
+                        sharedPrefs.edit().putBoolean("shield_active", true).apply()
+                        val intent = Intent(this, LocalPollingService::class.java)
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                            startForegroundService(intent)
+                        } else {
+                            startService(intent)
+                        }
+                        Toast.makeText(this, "📡 Direct HFC active", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
         }
 
         val seekDistTest = findViewById<SeekBar>(R.id.seekDistTest)
@@ -202,6 +250,7 @@ class SettingsActivity : AppCompatActivity() {
         val tvShieldLog = findViewById<TextView>(R.id.tvHybridLog)
         val tvRawHistory = findViewById<TextView>(R.id.tvRawHistory)
         val tvEmptySample = findViewById<TextView>(R.id.tvEmptySample)
+        val tvFcmHistory = findViewById<TextView>(R.id.tvFcmHistory)
         val tvResolvedZone = findViewById<TextView>(R.id.tvResolvedZone)
         val tvLastSync = findViewById<TextView>(R.id.tvLastSync)
         
@@ -213,6 +262,7 @@ class SettingsActivity : AppCompatActivity() {
                 val bHfc = sharedPrefs.getString("empty_sample_hfc", "Waiting...")
                 val bBack = sharedPrefs.getString("empty_sample_backend", "Waiting...")
                 tvEmptySample?.text = "HFC: $bHfc\nProxy: $bBack"
+                tvFcmHistory?.text = sharedPrefs.getString("fcm_diagnostic_log", "Waiting for FCM...")
                 
                 val lastSuccess = sharedPrefs.getLong("shield_last_success_ms", 0)
                 if (lastSuccess > 0) {
