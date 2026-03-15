@@ -62,7 +62,12 @@ class LocalPollingService : Service() {
                 } catch (e: Exception) {
                     Log.e("HomeFrontAlerts", "Poll cycle error", e)
                 }
-                Thread.sleep(1500)
+                try {
+                    Thread.sleep(1500)
+                } catch (e: InterruptedException) {
+                    isRunning = false
+                    break
+                }
             }
         }
         

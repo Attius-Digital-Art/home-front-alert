@@ -189,35 +189,80 @@ object StatusManager {
         if (!isEffectivelyEmpty && clean.startsWith("{")) {
             try {
                 val jsonObj = org.json.JSONObject(clean)
-                val activeObj = jsonObj.optJSONObject("active")
-                val activeArr = jsonObj.optJSONArray("active")
-                if ((activeObj != null && activeObj.length() == 0) || (activeArr != null && activeArr.length() == 0)) {
+                val active = if (jsonObj.has("active")) jsonObj.get("active") else null
+                
+                // baseline if missing 'active' or if 'active' is an empty object/array
+                val isEmptyActive = active == null || 
+                                    (active is org.json.JSONObject && active.length() == 0) || 
+                                    (active is org.json.JSONArray && active.length() == 0) ||
+                                    active.toString() == "{}" || active.toString() == "[]"
+                
+                if (isEmptyActive) {
                     isEffectivelyEmpty = true
                 }
-            } catch (e: java.lang.Exception) {}
+            } catch (e: Exception) {}
         }
         
         if (isEffectivelyEmpty) {
+            val baselineKey = if (sourceTag.contains("HFC")) "empty_sample_hfc" else "empty_sample_backend"
             prefs.edit().putString("shield_last_log", "[$nowTime] $sourceTag OK (Baseline)").apply()
             val baselineRep = if (clean.isEmpty()) "[EMPTY]" else if (clean.length > 50) clean.take(47) + "..." else clean
-            prefs.edit().putString("empty_sample_log", baselineRep).apply()
+            prefs.edit().putString(baselineKey, baselineRep).apply()
             prefs.edit().putLong("shield_last_success_ms", System.currentTimeMillis()).apply()
             return true
         }
 
-        // Data found! 
+        // --- Data Found ---
         prefs.edit().putString("shield_last_log", "[$nowTime] $sourceTag DATA!").apply()
         prefs.edit().putLong("shield_last_success_ms", System.currentTimeMillis()).apply()
         
-        // Update history (only first 100 chars for log preview)
+        // Update history
         val history = prefs.getString("raw_alert_history", "") ?: ""
-        val entry = "[$nowTime] $sourceTag: ${clean.take(100)}"
+        val entry = "[$nowTime] $sourceTag: ${clean.take(150).replace("\n", " ")}"
         if (!history.contains(clean.take(30))) {
             val lines = history.split("\n").filter { it.isNotEmpty() }.toMutableList()
             lines.add(0, entry)
             prefs.edit().putString("raw_alert_history", lines.take(5).joinToString("\n")).apply()
         }
 
+        // Alert Processing (Update Threat Map instantly)
+        try {
+            val root = org.json.JSONObject(body)
+            val jsonObject = if (root.has("active") && !root.isNull("active")) {
+                val active = root.get("active")
+                if (active is org.json.JSONObject) active 
+                else if (active is org.json.JSONArray && active.length() > 0) active.getJSONObject(0) 
+                else null
+            } else if (root.has("cat")) root else null
+
+            if (jsonObject != null) {
+                val cat = jsonObject.optString("cat", "")
+                val title = jsonObject.optString("title", "")
+                val type = AlertStyleRegistry.getStyle(cat, title)
+                val cities = jsonObject.optJSONArray("cities") ?: jsonObject.optJSONArray("data")
+                
+                if (cities != null && cities.length() > 0) {
+                    val threatsStr = prefs.getString("active_threat_map", "{}") ?: "{}"
+                    val threats = org.json.JSONObject(threatsStr)
+                    
+                    for (i in 0 until cities.length()) {
+                        val zone = cities.getString(i)
+                        if (type == AlertType.CALM) {
+                            threats.remove(zone)
+                        } else {
+                            val obj = org.json.JSONObject()
+                            obj.put("t", System.currentTimeMillis())
+                            obj.put("s", type.name)
+                            threats.put(zone, obj)
+                        }
+                    }
+                    prefs.edit().putString("active_threat_map", threats.toString()).apply()
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("HomeFrontAlerts", "Alert processing error: ${e.message}")
+        }
+        
         return true
     }
 }
