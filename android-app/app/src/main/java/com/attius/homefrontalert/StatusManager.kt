@@ -11,6 +11,14 @@ import android.util.Log
  */
 object StatusManager {
     private const val PREFS_NAME = "HomeFrontAlertsPrefs"
+    private val recentlyProcessedIds = mutableSetOf<String>()
+    
+    data class HandledAlert(
+        val id: String,
+        val type: AlertType,
+        val cities: List<String>,
+        val source: String
+    )
 
     fun updateStatus(context: Context, newStatus: String) {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -126,7 +134,7 @@ object StatusManager {
      * Unified Polling Engine: Can be called by Service or Activity.
      * Processes alerts, updates history, and maintains the baseline.
      */
-    fun runPollCycle(context: android.content.Context, forceBackend: Boolean = false) {
+    fun runPollCycle(context: android.content.Context, forceBackend: Boolean = false, toneGenerator: DynamicToneGenerator? = null) {
         val sharedPrefs = context.getSharedPreferences(PREFS_NAME, android.content.Context.MODE_PRIVATE)
         val now = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())
         val proxyRoot = BuildConfig.BACKEND_URL
@@ -150,7 +158,7 @@ object StatusManager {
 
                 if (code == 200 || code == 204) {
                     val body = if (code == 200) conn.inputStream.bufferedReader().use { it.readText() } else ""
-                    success = handlePollResult(context, body, "[HFC]", hfcStatus)
+                    success = handlePollResult(context, body, "[HFC]", hfcStatus, toneGenerator)
                 }
             } catch (e: Exception) { hfcStatus = "HFC: Fail" }
         }
@@ -166,7 +174,7 @@ object StatusManager {
                 
                 if (conn.responseCode == 200) {
                     val body = conn.inputStream.bufferedReader().use { it.readText() }
-                    success = handlePollResult(context, body, "[Backend]", "OK")
+                    success = handlePollResult(context, body, "[Backend]", "OK", toneGenerator)
                 } else {
                     hfcStatus += " | Backend: ${conn.responseCode}"
                 }
@@ -178,7 +186,7 @@ object StatusManager {
         }
     }
 
-    private fun handlePollResult(context: android.content.Context, body: String, sourceTag: String, statusInfo: String): Boolean {
+    private fun handlePollResult(context: android.content.Context, body: String, sourceTag: String, statusInfo: String, toneGenerator: DynamicToneGenerator?): Boolean {
         val prefs = context.getSharedPreferences(PREFS_NAME, android.content.Context.MODE_PRIVATE)
         val nowTime = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())
         
@@ -213,19 +221,8 @@ object StatusManager {
         }
 
         // --- Data Found ---
-        prefs.edit().putString("shield_last_log", "[$nowTime] $sourceTag DATA!").apply()
         prefs.edit().putLong("shield_last_success_ms", System.currentTimeMillis()).apply()
         
-        // Update history
-        val history = prefs.getString("raw_alert_history", "") ?: ""
-        val entry = "[$nowTime] $sourceTag: ${clean.take(150).replace("\n", " ")}"
-        if (!history.contains(clean.take(30))) {
-            val lines = history.split("\n").filter { it.isNotEmpty() }.toMutableList()
-            lines.add(0, entry)
-            prefs.edit().putString("raw_alert_history", lines.take(5).joinToString("\n")).apply()
-        }
-
-        // Alert Processing (Update Threat Map instantly)
         try {
             val root = org.json.JSONObject(body)
             val jsonObject = if (root.has("active") && !root.isNull("active")) {
@@ -237,32 +234,99 @@ object StatusManager {
 
             if (jsonObject != null) {
                 val cat = jsonObject.optString("cat", "")
-                val title = jsonObject.optString("title", "")
-                val type = AlertStyleRegistry.getStyle(cat, title)
-                val cities = jsonObject.optJSONArray("cities") ?: jsonObject.optJSONArray("data")
-                
-                if (cities != null && cities.length() > 0) {
-                    val threatsStr = prefs.getString("active_threat_map", "{}") ?: "{}"
-                    val threats = org.json.JSONObject(threatsStr)
+                val title = if (jsonObject.has("title")) jsonObject.getString("title") else jsonObject.optString("type", "")
+                val citiesArray = jsonObject.optJSONArray("cities") ?: jsonObject.optJSONArray("data")
+                val alertId = jsonObject.optString("id", System.currentTimeMillis().toString())
+
+                if (citiesArray != null && citiesArray.length() > 0) {
+                    val cities = mutableListOf<String>()
+                    for (i in 0 until citiesArray.length()) cities.add(citiesArray.getString(i))
                     
-                    for (i in 0 until cities.length()) {
-                        val zone = cities.getString(i)
-                        if (type == AlertType.CALM) {
-                            threats.remove(zone)
-                        } else {
-                            val obj = org.json.JSONObject()
-                            obj.put("t", System.currentTimeMillis())
-                            obj.put("s", type.name)
-                            threats.put(zone, obj)
-                        }
-                    }
-                    prefs.edit().putString("active_threat_map", threats.toString()).apply()
+                    val type = AlertStyleRegistry.getStyle(cat, title)
+                    processAlert(context, alertId, type, cities, sourceTag, toneGenerator)
+                    
+                    // Update log after processing
+                    prefs.edit().putString("shield_last_log", "[$nowTime] $sourceTag DATA!").apply()
+                    return true
                 }
             }
         } catch (e: Exception) {
-            Log.e("HomeFrontAlerts", "Alert processing error: ${e.message}")
+            Log.e("HomeFrontAlerts", "Poll result processing error: ${e.message}")
         }
         
         return true
+    }
+
+    fun processAlert(context: Context, id: String, type: AlertType, cities: List<String>, source: String, toneGenerator: DynamicToneGenerator?) {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val nowTime = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())
+        
+        // 1. Centralized ID Tracking (Deduplication)
+        val ssotId = if (type == AlertType.CALM) id + "_clear" else id
+        if (recentlyProcessedIds.contains(ssotId)) {
+            Log.d("HomeFrontAlerts", "SSOT: Alert $ssotId already balanced. Skipping.")
+            return
+        }
+        recentlyProcessedIds.add(ssotId)
+        if (recentlyProcessedIds.size > 200) recentlyProcessedIds.remove(recentlyProcessedIds.first())
+
+        Log.i("HomeFrontAlerts", "🚨 PROCESSING: $id | $type | Cities: ${cities.size} | Source: $source")
+
+        // 2. Update Raw History Log
+        val history = prefs.getString("raw_alert_history", "") ?: ""
+        val entry = "[$nowTime] $source: $type @ ${cities.take(3).joinToString(", ")}${if (cities.size > 3) "..." else ""}"
+        if (!history.contains(id.take(10))) {
+            val lines = history.split("\n").filter { it.isNotEmpty() }.toMutableList()
+            lines.add(0, entry)
+            prefs.edit().putString("raw_alert_history", lines.take(5).joinToString("\n")).apply()
+        }
+
+        // 3. Update SSOT Threat Map
+        val threatsStr = prefs.getString("active_threat_map", "{}") ?: "{}"
+        val threats = org.json.JSONObject(threatsStr)
+        val calculator = ZoneDistanceCalculator(context)
+        
+        cities.forEach { zone ->
+            if (type == AlertType.CALM) {
+                threats.remove(zone)
+            } else {
+                val obj = org.json.JSONObject()
+                obj.put("t", System.currentTimeMillis())
+                obj.put("s", type.name)
+                obj.put("c", calculator.getZoneCountdown(zone))
+                threats.put(zone, obj)
+            }
+        }
+        prefs.edit().putString("active_threat_map", threats.toString()).apply()
+
+        // 4. Calculate Audio/UI distance metrics
+        val locationManager = AppLocationManager.getInstance(context)
+        val loc = locationManager.resolveCurrentLocation()
+        val userZone = normalizeCity(loc.zoneNameHe)
+        val normalizedAlerted = cities.map { normalizeCity(it) }
+        val isLocal = userZone.isNotEmpty() && normalizedAlerted.contains(userZone)
+
+        val distances = calculator.calculateDistancesToAlerts(loc.lat, loc.lng, cities)
+        val minDistance = if (distances.isNotEmpty()) distances.min() else -1.0
+
+        // 5. Update UI Metadata
+        prefs.edit()
+            .putString("last_alert_zones", cities.joinToString(", "))
+            .putFloat("last_alert_dist", minDistance.toFloat())
+            .putLong("last_alert_time", System.currentTimeMillis())
+            .apply()
+
+        // 6. Trigger Audio
+        if (toneGenerator != null) {
+            val volume = prefs.getFloat("alert_volume", 1.0f)
+            if (distances.isNotEmpty() || (type == AlertType.CALM && isLocal)) {
+                toneGenerator.playTonesForDistances(distances, volume, type, isLocal)
+            } else if (isLocal) {
+                toneGenerator.playTonesForDistances(listOf(0.0), volume, type, true)
+            }
+        }
+
+        // 7. Refresh SSOT Status
+        recalculateStatus(context)
     }
 }

@@ -351,8 +351,8 @@ class SettingsActivity : AppCompatActivity() {
                 val arr = org.json.JSONArray(body)
                 if (arr.length() > 0) {
                     val last = arr.getJSONObject(0)
-                    val title = last.optString("title", "Unknown")
-                    val time = last.optString("time", "...")
+                    val title = if (last.has("type")) last.getString("type") else last.optString("title", "Unknown")
+                    val time = if (last.has("serverTime")) last.getString("serverTime") else last.optString("time", "...")
                     lastAlertProof = "\n✨ Last Proof: $title @ $time"
                 }
             }
