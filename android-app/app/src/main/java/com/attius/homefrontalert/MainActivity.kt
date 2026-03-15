@@ -14,6 +14,7 @@ import android.widget.ImageView
 import android.widget.TextView
 import androidx.constraintlayout.widget.ConstraintLayout
 import com.attius.homefrontalert.BuildConfig
+import com.google.firebase.messaging.FirebaseMessaging
 
 class MainActivity : AppCompatActivity() {
 
@@ -34,10 +35,11 @@ class MainActivity : AppCompatActivity() {
     
     private lateinit var tvLastAlertZones: TextView
     private lateinit var tvLastAlertInfo: TextView
-    private lateinit var cardLastAlert: androidx.cardview.widget.CardView
     private lateinit var sharedPrefs: android.content.SharedPreferences
     private lateinit var locationManager: AppLocationManager
     private lateinit var distanceCalculator: ZoneDistanceCalculator
+    private lateinit var toneGenerator: DynamicToneGenerator
+
 
     private val uiHandler = Handler(Looper.getMainLooper())
     private var isResolvingLocation = false
@@ -52,7 +54,7 @@ class MainActivity : AppCompatActivity() {
         override fun run() {
             if (!sharedPrefs.getBoolean("shield_active", false)) {
                 kotlin.concurrent.thread(start = true) {
-                    StatusManager.runPollCycle(this@MainActivity, forceBackend = true)
+                    StatusManager.runPollCycle(this@MainActivity, forceBackend = true, toneGenerator = toneGenerator)
                 }
             }
             uiHandler.postDelayed(this, 15000) // 15s for backend hybrid route
@@ -70,6 +72,13 @@ class MainActivity : AppCompatActivity() {
         sharedPrefs = getSharedPreferences("HomeFrontAlertsPrefs", Context.MODE_PRIVATE)
         locationManager = AppLocationManager.getInstance(this)
         distanceCalculator = ZoneDistanceCalculator(this)
+        toneGenerator = DynamicToneGenerator(this)
+
+        // Subscribe to Backend Broadcasts for Hybrid/Failover coverage
+        FirebaseMessaging.getInstance().subscribeToTopic("alerts")
+            .addOnCompleteListener { task ->
+                if (task.isSuccessful) android.util.Log.d("HomeFrontAlerts", "FCM: Subscribed to 'alerts' topic.")
+            }
 
         performInitialSetupIfNeeded()
 

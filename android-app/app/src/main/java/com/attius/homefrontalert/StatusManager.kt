@@ -251,7 +251,7 @@ object StatusManager {
                         prefs.edit().putString(baselineKey, "ALL-CLEAR @ $nowTime").apply()
                     }
 
-                    processAlert(context, alertId, type, cities, sourceTag, toneGenerator)
+                    processAlert(context, alertId, type, cities, sourceTag, toneGenerator, body)
                     
                     // Update log after processing
                     if (type != AlertType.CALM) {
@@ -267,7 +267,7 @@ object StatusManager {
         return true
     }
 
-    fun processAlert(context: Context, id: String, type: AlertType, cities: List<String>, source: String, toneGenerator: DynamicToneGenerator?) {
+    fun processAlert(context: Context, id: String, type: AlertType, cities: List<String>, source: String, toneGenerator: DynamicToneGenerator?, rawBody: String? = null) {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val nowTime = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())
         
@@ -282,13 +282,15 @@ object StatusManager {
 
         Log.i("HomeFrontAlerts", "🚨 PROCESSING: $id | $type | Cities: ${cities.size} | Source: $source")
 
-        // 2. Update Raw History Log
+        // 2. Update Raw History Log (Diagnostics SSOT)
         val history = prefs.getString("raw_alert_history", "") ?: ""
-        val entry = "[$nowTime] $source: $type @ ${cities.take(3).joinToString(", ")}${if (cities.size > 3) "..." else ""}"
+        val displayBody = rawBody?.trim()?.take(250)?.replace("\n", " ") ?: "$type @ ${cities.take(3).joinToString(", ")}"
+        val entry = "[$nowTime] $source: $displayBody"
+        
         if (!history.contains(id.take(10))) {
             val lines = history.split("\n").filter { it.isNotEmpty() }.toMutableList()
             lines.add(0, entry)
-            prefs.edit().putString("raw_alert_history", lines.take(5).joinToString("\n")).apply()
+            prefs.edit().putString("raw_alert_history", lines.take(10).joinToString("\n")).apply()
         }
 
         // 3. Update SSOT Threat Map
