@@ -243,10 +243,20 @@ object StatusManager {
                     for (i in 0 until citiesArray.length()) cities.add(citiesArray.getString(i))
                     
                     val type = AlertStyleRegistry.getStyle(cat, title)
+                    
+                    // If it's an "All Clear" (CALM) event, it's effectively a baseline for telemetry purposes
+                    if (type == AlertType.CALM) {
+                        val baselineKey = if (sourceTag.contains("HFC")) "empty_sample_hfc" else "empty_sample_backend"
+                        prefs.edit().putString("shield_last_log", "[$nowTime] $sourceTag OK (All-Clear)").apply()
+                        prefs.edit().putString(baselineKey, "ALL-CLEAR @ $nowTime").apply()
+                    }
+
                     processAlert(context, alertId, type, cities, sourceTag, toneGenerator)
                     
                     // Update log after processing
-                    prefs.edit().putString("shield_last_log", "[$nowTime] $sourceTag DATA!").apply()
+                    if (type != AlertType.CALM) {
+                        prefs.edit().putString("shield_last_log", "[$nowTime] $sourceTag DATA!").apply()
+                    }
                     return true
                 }
             }
@@ -309,12 +319,14 @@ object StatusManager {
         val distances = calculator.calculateDistancesToAlerts(loc.lat, loc.lng, cities)
         val minDistance = if (distances.isNotEmpty()) distances.min() else -1.0
 
-        // 5. Update UI Metadata
-        prefs.edit()
-            .putString("last_alert_zones", cities.joinToString(", "))
-            .putFloat("last_alert_dist", minDistance.toFloat())
-            .putLong("last_alert_time", System.currentTimeMillis())
-            .apply()
+        // 5. Update UI Metadata (ONLY for real threats)
+        if (type != AlertType.CALM) {
+            prefs.edit()
+                .putString("last_alert_zones", cities.joinToString(", "))
+                .putFloat("last_alert_dist", minDistance.toFloat())
+                .putLong("last_alert_time", System.currentTimeMillis())
+                .apply()
+        }
 
         // 6. Trigger Audio
         if (toneGenerator != null) {
