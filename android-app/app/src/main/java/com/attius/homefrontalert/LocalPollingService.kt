@@ -104,15 +104,7 @@ class LocalPollingService : Service() {
     }
 
     private fun pollCycle() {
-        StatusManager.runPollCycle(this)
-        
-        // After polling, we check if there's data to process for audio locally
-        val sharedPrefs = getSharedPreferences("HomeFrontAlertsPrefs", Context.MODE_PRIVATE)
-        val lastSuccess = sharedPrefs.getLong("shield_last_success_ms", 0)
-        
-        // Note: StatusManager now handles the raw log and baseline.
-        // We still check if a sound needs to be played.
-        StatusManager.recalculateStatus(this)
+        StatusManager.runPollCycle(this, toneGenerator = toneGenerator)
     }
 
     private fun saveRawAlertToLog(source: String, body: String) {
