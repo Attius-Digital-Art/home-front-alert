@@ -28,18 +28,7 @@ class SettingsActivity : AppCompatActivity() {
     private var isResolvingLocation = false
     private lateinit var sharedPrefs: android.content.SharedPreferences
     private lateinit var toneGenerator: DynamicToneGenerator
-    private val uiHandler = Handler(Looper.getMainLooper())
-    
-    private val backendPoller = object : Runnable {
-        override fun run() {
-            if (!sharedPrefs.getBoolean("shield_active", false)) {
-                kotlin.concurrent.thread(start = true) {
-                    StatusManager.runPollCycle(this@SettingsActivity, forceBackend = true, toneGenerator = toneGenerator)
-                }
-            }
-            uiHandler.postDelayed(this, 15000)
-        }
-    }
+
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -215,6 +204,10 @@ class SettingsActivity : AppCompatActivity() {
                 }
             }
         }
+
+        // Hide old shield toggle for Pro (cardAlertSource handles mode selection)
+        val cardShield = findViewById<androidx.cardview.widget.CardView>(R.id.cardShield)
+        if (BuildConfig.IS_PAID) cardShield.visibility = android.view.View.GONE
 
         val seekDistTest = findViewById<SeekBar>(R.id.seekDistTest)
         val tvDistTestLabel = findViewById<TextView>(R.id.tvDistTestLabel)
@@ -458,13 +451,11 @@ class SettingsActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         locationManager.startTracking()
-        uiHandler.post(backendPoller)
     }
 
     override fun onPause() {
         super.onPause()
         locationManager.stopTracking()
-        uiHandler.removeCallbacks(backendPoller)
     }
 
     private fun refreshSettingsUI() {
