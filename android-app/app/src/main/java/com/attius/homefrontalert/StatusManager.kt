@@ -319,10 +319,16 @@ object StatusManager {
         // 6. Trigger Audio
         if (toneGenerator != null) {
             val volume = prefs.getFloat("alert_volume", 1.0f)
-            if (distances.isNotEmpty() || (type == AlertType.CALM && isLocal)) {
-                toneGenerator.playTonesForDistances(distances, volume, type, isLocal)
-            } else if (isLocal) {
-                toneGenerator.playTonesForDistances(listOf(0.0), volume, type, true)
+            if (type == AlertType.CALM) {
+                // All-clear is strictly local
+                if (isLocal) {
+                    toneGenerator.playTonesForDistances(emptyList(), volume, type, true)
+                }
+            } else {
+                // Threat notifications (Urgent/Caution) sound if nearby OR local
+                if (distances.isNotEmpty() || isLocal) {
+                    toneGenerator.playTonesForDistances(distances, volume, type, isLocal)
+                }
             }
         }
 
