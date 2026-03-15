@@ -586,18 +586,18 @@
                 </androidx.cardview.widget.CardView>
             </LinearLayout> <!-- End of Advanced Section -->
 
-        </LinearLayout>
-        <TextView
-            android:id="@+id/tvAppVersion"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="v1.6.0"
-            android:textColor="#444444"
-            android:textSize="11sp"
-            android:textAlignment="center"
-            android:fontFamily="monospace"
-            android:paddingTop="8dp"
-            android:paddingBottom="16dp" />
+            <TextView
+                android:id="@+id/tvAppVersion"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="v1.6.0"
+                android:textColor="#444444"
+                android:textSize="11sp"
+                android:textAlignment="center"
+                android:fontFamily="monospace"
+                android:paddingTop="8dp"
+                android:paddingBottom="16dp" />
 
+        </LinearLayout>
     </ScrollView>
 </LinearLayout>
