@@ -34,7 +34,7 @@ class SettingsActivity : AppCompatActivity() {
         override fun run() {
             if (!sharedPrefs.getBoolean("shield_active", false)) {
                 kotlin.concurrent.thread(start = true) {
-                    StatusManager.runPollCycle(this@SettingsActivity, forceBackend = true)
+                    StatusManager.runPollCycle(this@SettingsActivity, forceBackend = true, toneGenerator = toneGenerator)
                 }
             }
             uiHandler.postDelayed(this, 15000)
