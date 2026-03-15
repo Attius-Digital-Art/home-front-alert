@@ -73,6 +73,11 @@ app.get('/alerts', (req, res) => {
     });
 });
 
+// History endpoint for proof of delivery
+app.get('/alerts/history', (req, res) => {
+    res.json(lastDetectedAlert ? [lastDetectedAlert] : []);
+});
+
 
 
 const PORT = process.env.PORT || 8080;
@@ -102,7 +107,7 @@ try {
 }
 
 // Polling configuration
-const interval = 2000;
+const interval = 1000; // Increased frequency for sub-second trailing
 const HFC_API_URL = 'https://www.oref.org.il/WarningMessages/alert/Alerts.json';
 const HFC_HEADERS = {
     'User-Agent': 'PikudHaoref/1.6 (iPhone; iOS 17.4; Scale/3.00)',
@@ -150,7 +155,7 @@ const poll = async function () {
             try {
                 const res = await axios.get('https://api.pakar.ivr2.tel/alerts', {
                     timeout: 5000,
-                    headers,
+                    headers: HFC_HEADERS,
                     validateStatus: s => s === 200
                 });
                 if (res.data && typeof res.data === 'object') {
@@ -169,7 +174,7 @@ const poll = async function () {
             try {
                 const res = await axios.get('https://www.tzevaadom.co.il/static/historical/all.json', {
                     timeout: 5000,
-                    headers,
+                    headers: HFC_HEADERS,
                     validateStatus: s => s === 200
                 });
                 // Take the most recent alert if it's very recent (less than 30s old)
@@ -215,7 +220,7 @@ const poll = async function () {
         isConnected = false;
         activeSource = "None"; // No active source if critical error
     } finally {
-        // Wait exactly 'interval' AFTER the work is done before polling again
+        // Tight loop: 1s pause between requests
         setTimeout(poll, interval);
     }
 };
@@ -246,19 +251,30 @@ function handleSuccessfulConnection(data, source) {
 
     // If we reach here, we have a REAL alert payload
     const payloadStr = JSON.stringify(data);
-    console.log(`🚨 DATA DETECTED [${source}]: ${payloadStr}`);
-
+    
     // Canonicalize
     const normalizedAlert = {
         id: data.id || Date.now().toString(),
         type: data.title || data.desc || data.type || "Rocket Alert",
-        cities: data.cities || data.data || []
+        cities: Array.isArray(data.cities) ? data.cities : (Array.isArray(data.data) ? data.data : []),
+        raw: data
     };
 
-    if (normalizedAlert.cities && normalizedAlert.cities.length > 0) {
-        handleAlertDispatch(normalizedAlert);
+    if (normalizedAlert.cities.length > 0) {
+        // Backend Deduplication: Only dispatch if City List or ID changed
+        const currentCitiesKey = normalizedAlert.cities.sort().join('|');
+        const lastCitiesKey = lastDetectedAlert ? lastDetectedAlert.cities.sort().join('|') : "";
+        
+        if (normalizedAlert.id !== (lastDetectedAlert ? lastDetectedAlert.id : "") || currentCitiesKey !== lastCitiesKey) {
+            console.log(`🚨 DISPATCHING [${source}]: ${normalizedAlert.cities.length} cities`);
+            handleAlertDispatch(normalizedAlert);
+        } else {
+            // Heartbeat for existing alert
+            if (Math.random() < 0.05) console.log(`... Alert ${normalizedAlert.id} still active (suppressing redundant FCM)`);
+        }
 
-        // State maintenance
+        // State maintenance for /alerts endpoint (Hybrid Polling)
+        currentAlert = normalizedAlert;
         if (alertExpirationTimer) clearTimeout(alertExpirationTimer);
         alertExpirationTimer = setTimeout(() => {
             console.log("Current alert state cleared (90s).");
@@ -281,15 +297,19 @@ function sendFCMAlert(alertData) {
     const message = {
         data: {
             alertId: String(alertData.id),
-            type: alertData.type,
+            type: String(alertData.type),
             cities: JSON.stringify(alertData.cities)
+        },
+        android: {
+            priority: 'high',
+            ttl: 60 * 1000 // 60 seconds (Life-safety alerts must be fresh or discarded)
         },
         topic: 'alerts'
     };
 
     admin.messaging().send(message)
-        .then(res => console.log('FCM Success:', res))
-        .catch(err => console.error('FCM Error:', err.message));
+        .then(res => console.log('🚀 FCM Broadcast Success:', res))
+        .catch(err => console.error('❌ FCM Broadcast Error:', err.message));
 }
 
 // Global crash handlers

@@ -7,7 +7,7 @@ steps:
   - name: 'gcr.io/cloud-builders/docker'
     args: ['push', '$_AR_HOSTNAME/$PROJECT_ID/$_AR_REPOSITORY/$_SERVICE_NAME:latest']
 
-  # 3. Deploy to Cloud Run
+  # 3. Deploy to Cloud Run (min-instances=1 keeps the polling loop alive 24/7)
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     entrypoint: gcloud
     args:
@@ -18,13 +18,15 @@ steps:
       - '--region=$_REGION'
       - '--platform=managed'
       - '--allow-unauthenticated'
+      - '--min-instances=1'
+      - '--no-cpu-throttling'
       - '--update-env-vars=NODE_ENV=production'
 
 images:
   - '$_AR_HOSTNAME/$PROJECT_ID/$_AR_REPOSITORY/$_SERVICE_NAME:latest'
 
 substitutions:
-  _SERVICE_NAME: home-front-backend
+  _SERVICE_NAME: homefront-backend
   _REGION: me-west1
   _AR_HOSTNAME: me-west1-docker.pkg.dev
   _AR_REPOSITORY: backend-repo

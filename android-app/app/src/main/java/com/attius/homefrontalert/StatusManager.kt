@@ -12,6 +12,7 @@ import android.util.Log
 object StatusManager {
     private const val PREFS_NAME = "HomeFrontAlertsPrefs"
     private val recentlyProcessedIds = mutableSetOf<String>()
+    private val signaledCitiesPerAlert = mutableMapOf<String, MutableSet<String>>()
     
     data class HandledAlert(
         val id: String,
@@ -37,7 +38,6 @@ object StatusManager {
 
     fun updateLocation(context: Context, zoneHe: String, lat: Double, lng: Double) {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        val oldZone = prefs.getString("current_home_zone", "")
         
         prefs.edit().apply {
             putString("current_home_zone", zoneHe)
@@ -81,24 +81,25 @@ object StatusManager {
         // Persist cleaned map
         prefs.edit().putString("active_threat_map", threats.toString()).apply()
         
+        // Simpler PRUNING: If registry gets too large, clear oldest entries to maintain memory safety
+        if (signaledCitiesPerAlert.size > 100) {
+           val oldestKey = signaledCitiesPerAlert.keys.firstOrNull()
+           if (oldestKey != null) signaledCitiesPerAlert.remove(oldestKey)
+        }
+        
         var newStatus = "GREEN"
         if (threats.length() > 0) {
-            // Priority 3: Any active alert in any zone -> YELLOW (Threat)
             newStatus = "YELLOW"
-            
-            val iter = threats.keys()
-            while(iter.hasNext()) {
-                val zone = iter.next()
+            val iterKeys = threats.keys()
+            while(iterKeys.hasNext()) {
+                val zone = iterKeys.next()
                 val obj = threats.getJSONObject(zone)
-                
                 if (normalizeCity(zone) == homeZone) {
                     val style = obj.optString("s", "URGENT")
                     if (style == "URGENT") {
-                        // Priority 1: Urgent in home zone -> RED
                         newStatus = "RED"
                         break 
                     } else if (newStatus != "RED") {
-                        // Priority 2: Caution in home zone -> ORANGE
                         newStatus = "ORANGE" 
                     }
                 }
@@ -139,6 +140,9 @@ object StatusManager {
         val now = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())
         val proxyRoot = BuildConfig.BACKEND_URL
         val proxyUrl = if (proxyRoot.endsWith("/alerts")) proxyRoot else "$proxyRoot/alerts"
+        
+        // Use a short timeout for the primary check to avoid hanging the cycle
+        val pollTimeout = 2500
 
         var hfcStatus = "Pending"
         var success = false
@@ -168,8 +172,8 @@ object StatusManager {
             try {
                 val url = java.net.URL(proxyUrl)
                 val conn = url.openConnection() as java.net.HttpURLConnection
-                conn.connectTimeout = 4000
-                conn.readTimeout = 4000
+                conn.connectTimeout = pollTimeout
+                conn.readTimeout = pollTimeout
                 conn.setRequestProperty("X-API-Key", BuildConfig.API_KEY)
                 
                 if (conn.responseCode == 200) {
@@ -186,7 +190,7 @@ object StatusManager {
         }
     }
 
-    private fun handlePollResult(context: android.content.Context, body: String, sourceTag: String, statusInfo: String, toneGenerator: DynamicToneGenerator?): Boolean {
+    private fun handlePollResult(context: android.content.Context, body: String, sourceTag: String, _statusInfo: String, toneGenerator: DynamicToneGenerator?): Boolean {
         val prefs = context.getSharedPreferences(PREFS_NAME, android.content.Context.MODE_PRIVATE)
         val nowTime = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())
         
@@ -271,16 +275,14 @@ object StatusManager {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val nowTime = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())
         
-        // 1. Centralized ID Tracking (Deduplication)
-        val ssotId = if (type == AlertType.CALM) id + "_clear" else id
-        if (recentlyProcessedIds.contains(ssotId)) {
-            Log.d("HomeFrontAlerts", "SSOT: Alert $ssotId already balanced. Skipping.")
-            return
-        }
-        recentlyProcessedIds.add(ssotId)
-        if (recentlyProcessedIds.size > 200) recentlyProcessedIds.remove(recentlyProcessedIds.first())
-
-        Log.i("HomeFrontAlerts", "🚨 PROCESSING: $id | $type | Cities: ${cities.size} | Source: $source")
+        // 1. Centralized Incremental Signaling (Deduplication per city within an ID)
+        val signaledSet = signaledCitiesPerAlert.getOrPut(id) { mutableSetOf() }
+        val newCitiesForAudio = cities.filter { !signaledSet.contains(normalizeCity(it)) }
+        
+        // If it's a threat and no NEW cities were added, we still update the threat map (to refresh timers)
+        // but we might skip the audio if it's purely a redundant broadcast.
+        
+        Log.i("HomeFrontAlerts", "🚨 PROCESSING: $id | $type | Total: ${cities.size} | New: ${newCitiesForAudio.size} | Source: $source")
 
         // 2. Update Raw History Log (Diagnostics SSOT)
         val history = prefs.getString("raw_alert_history", "") ?: ""
@@ -315,11 +317,16 @@ object StatusManager {
         val locationManager = AppLocationManager.getInstance(context)
         val loc = locationManager.resolveCurrentLocation()
         val userZone = normalizeCity(loc.zoneNameHe)
-        val normalizedAlerted = cities.map { normalizeCity(it) }
-        val isLocal = userZone.isNotEmpty() && normalizedAlerted.contains(userZone)
+        
+        // For Audio: Only consider the DELTA (new cities)
+        val newNormalized = newCitiesForAudio.map { normalizeCity(it) }
+        val isLocalInDelta = userZone.isNotEmpty() && newNormalized.contains(userZone)
+        val distancesForAudio = calculator.calculateDistancesToAlerts(loc.lat, loc.lng, newCitiesForAudio)
 
-        val distances = calculator.calculateDistancesToAlerts(loc.lat, loc.lng, cities)
-        val minDistance = if (distances.isNotEmpty()) distances.min() else -1.0
+        // For UI: Use the full set for accurate distance display on dashboard
+        val allNormalized = cities.map { normalizeCity(it) }
+        val distancesTotal = calculator.calculateDistancesToAlerts(loc.lat, loc.lng, cities)
+        val minDistance = if (distancesTotal.isNotEmpty()) distancesTotal.min() else -1.0
 
         // 5. Update UI Metadata (ONLY for real threats)
         if (type != AlertType.CALM) {
@@ -330,23 +337,40 @@ object StatusManager {
                 .apply()
         }
 
-        // 6. Trigger Audio
+        // 6. Trigger Audio (Only if Delta exists or All-Clear)
         if (toneGenerator != null) {
             val volume = prefs.getFloat("alert_volume", 1.0f)
+            
             if (type == AlertType.CALM) {
-                // All-clear is strictly local
-                if (isLocal) {
+                // All-clear is handled separately (mapped to local zone check)
+                val isLocalTotal = userZone.isNotEmpty() && allNormalized.contains(userZone)
+                if (isLocalTotal) {
                     toneGenerator.playTonesForDistances(emptyList(), volume, type, true)
                 }
-            } else {
-                // Threat notifications (Urgent/Caution) sound if nearby OR local
-                if (distances.isNotEmpty() || isLocal) {
-                    toneGenerator.playTonesForDistances(distances, volume, type, isLocal)
+            } else if (newCitiesForAudio.isNotEmpty()) {
+                Log.i("HomeFrontAlerts", "🔊 DELTA AUDIO: $id | New Cities: ${newCitiesForAudio.size} | Local: $isLocalInDelta")
+                if (distancesForAudio.isNotEmpty() || isLocalInDelta) {
+                    // Mark these cities as signaled for this ID
+                    newCitiesForAudio.forEach { signaledSet.add(normalizeCity(it)) }
+                    toneGenerator.playTonesForDistances(distancesForAudio, volume, type, isLocalInDelta)
                 }
             }
         }
 
         // 7. Refresh SSOT Status
         recalculateStatus(context)
+    }
+
+    fun logFcmDiagnostic(context: Context, rawData: String) {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val nowTime = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())
+        
+        val history = prefs.getString("fcm_diagnostic_log", "") ?: ""
+        val entry = "[$nowTime] $rawData"
+        
+        val lines = history.split("\n").filter { it.isNotEmpty() }.toMutableList()
+        lines.add(0, entry)
+        
+        prefs.edit().putString("fcm_diagnostic_log", lines.take(10).joinToString("\n")).apply()
     }
 }

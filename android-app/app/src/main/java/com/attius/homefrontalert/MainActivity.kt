@@ -15,6 +15,7 @@ import android.widget.TextView
 import androidx.constraintlayout.widget.ConstraintLayout
 import com.attius.homefrontalert.BuildConfig
 import com.google.firebase.messaging.FirebaseMessaging
+import androidx.cardview.widget.CardView
 
 class MainActivity : AppCompatActivity() {
 
@@ -35,6 +36,7 @@ class MainActivity : AppCompatActivity() {
     
     private lateinit var tvLastAlertZones: TextView
     private lateinit var tvLastAlertInfo: TextView
+    private lateinit var cardLastAlert: androidx.cardview.widget.CardView
     private lateinit var sharedPrefs: android.content.SharedPreferences
     private lateinit var locationManager: AppLocationManager
     private lateinit var distanceCalculator: ZoneDistanceCalculator
@@ -50,16 +52,6 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private val backendPoller = object : Runnable {
-        override fun run() {
-            if (!sharedPrefs.getBoolean("shield_active", false)) {
-                kotlin.concurrent.thread(start = true) {
-                    StatusManager.runPollCycle(this@MainActivity, forceBackend = true, toneGenerator = toneGenerator)
-                }
-            }
-            uiHandler.postDelayed(this, 15000) // 15s for backend hybrid route
-        }
-    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -144,13 +136,11 @@ class MainActivity : AppCompatActivity() {
         super.onResume()
         locationManager.startTracking()
         uiHandler.post(uiUpdater)
-        uiHandler.post(backendPoller)
     }
 
     override fun onPause() {
         super.onPause()
         uiHandler.removeCallbacks(uiUpdater)
-        uiHandler.removeCallbacks(backendPoller)
     }
 
     private fun refreshDashboardState() {

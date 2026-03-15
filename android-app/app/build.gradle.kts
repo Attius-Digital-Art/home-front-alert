@@ -23,8 +23,8 @@ android {
         applicationId = "com.attius.homefrontalert"
         minSdk = 26
         targetSdk = 35
-        versionCode = 16
-        versionName = "1.5.2"
+        versionCode = 17
+        versionName = "1.6.0"
 
         buildConfigField("String", "BACKEND_URL", "\"$backendUrlEnv\"")
         buildConfigField("String", "API_KEY", "\"$apiKeyEnv\"")
@@ -79,6 +79,16 @@ android {
     lint {
         abortOnError = false
         checkReleaseBuilds = false
+    }
+
+    // Name APKs: HomeFrontAlert-{version}-{flavor}-{buildType}.apk
+    applicationVariants.all {
+        val variant = this
+        variant.outputs
+            .map { it as com.android.build.gradle.internal.api.BaseVariantOutputImpl }
+            .forEach { output ->
+                output.outputFileName = "HomeFrontAlert-${variant.versionName}-${variant.flavorName}-${variant.buildType.name}.apk"
+            }
     }
 }
 
