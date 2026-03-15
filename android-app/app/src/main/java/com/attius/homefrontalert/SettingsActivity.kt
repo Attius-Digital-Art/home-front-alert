@@ -28,6 +28,18 @@ class SettingsActivity : AppCompatActivity() {
     private var isResolvingLocation = false
     private lateinit var sharedPrefs: android.content.SharedPreferences
     private lateinit var toneGenerator: DynamicToneGenerator
+    private val uiHandler = Handler(Looper.getMainLooper())
+    
+    private val backendPoller = object : Runnable {
+        override fun run() {
+            if (!sharedPrefs.getBoolean("shield_active", false)) {
+                kotlin.concurrent.thread(start = true) {
+                    StatusManager.runPollCycle(this@SettingsActivity, forceBackend = true)
+                }
+            }
+            uiHandler.postDelayed(this, 15000)
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -198,7 +210,9 @@ class SettingsActivity : AppCompatActivity() {
             override fun run() {
                 tvShieldLog?.text = sharedPrefs.getString("shield_last_log", "...")
                 tvRawHistory?.text = sharedPrefs.getString("raw_alert_history", "...")
-                tvEmptySample?.text = sharedPrefs.getString("empty_sample_log", getString(R.string.no_baseline))
+                val bHfc = sharedPrefs.getString("empty_sample_hfc", "Waiting...")
+                val bBack = sharedPrefs.getString("empty_sample_backend", "Waiting...")
+                tvEmptySample?.text = "HFC: $bHfc\nProxy: $bBack"
                 
                 val lastSuccess = sharedPrefs.getLong("shield_last_success_ms", 0)
                 if (lastSuccess > 0) {
@@ -394,11 +408,13 @@ class SettingsActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         locationManager.startTracking()
+        uiHandler.post(backendPoller)
     }
 
     override fun onPause() {
         super.onPause()
         locationManager.stopTracking()
+        uiHandler.removeCallbacks(backendPoller)
     }
 
     private fun refreshSettingsUI() {
