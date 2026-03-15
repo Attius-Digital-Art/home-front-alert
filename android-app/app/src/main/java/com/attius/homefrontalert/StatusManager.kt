@@ -135,57 +135,32 @@ object StatusManager {
      * Unified Polling Engine: Can be called by Service or Activity.
      * Processes alerts, updates history, and maintains the baseline.
      */
-    fun runPollCycle(context: android.content.Context, forceBackend: Boolean = false, toneGenerator: DynamicToneGenerator? = null) {
+    fun runPollCycle(context: android.content.Context, toneGenerator: DynamicToneGenerator? = null) {
         val sharedPrefs = context.getSharedPreferences(PREFS_NAME, android.content.Context.MODE_PRIVATE)
         val now = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())
-        val proxyRoot = BuildConfig.BACKEND_URL
-        val proxyUrl = if (proxyRoot.endsWith("/alerts")) proxyRoot else "$proxyRoot/alerts"
-        
-        // Use a short timeout for the primary check to avoid hanging the cycle
-        val pollTimeout = 2500
 
         var hfcStatus = "Pending"
         var success = false
 
-        // 1. Try Direct HFC (Unless forced backend)
-        if (!forceBackend) {
-            try {
-                val hfcUrl = java.net.URL("https://www.oref.org.il/WarningMessages/alert/Alerts.json")
-                val conn = hfcUrl.openConnection() as java.net.HttpURLConnection
-                conn.connectTimeout = 3000
-                conn.readTimeout = 3000
-                conn.setRequestProperty("User-Agent", "PikudHaoref/1.6 (iPhone; iOS 17.4; Scale/3.00)")
-                conn.setRequestProperty("Referer", "https://www.oref.org.il/")
-                
-                val code = conn.responseCode
-                hfcStatus = "HFC: $code"
+        // Direct HFC poll — the only polling path. FCM handles PRO primary delivery server-side.
+        try {
+            val hfcUrl = java.net.URL("https://www.oref.org.il/WarningMessages/alert/Alerts.json")
+            val conn = hfcUrl.openConnection() as java.net.HttpURLConnection
+            conn.connectTimeout = 3000
+            conn.readTimeout = 3000
+            conn.setRequestProperty("User-Agent", "PikudHaoref/1.6 (iPhone; iOS 17.4; Scale/3.00)")
+            conn.setRequestProperty("Referer", "https://www.oref.org.il/")
 
-                if (code == 200 || code == 204) {
-                    val body = if (code == 200) conn.inputStream.bufferedReader().use { it.readText() } else ""
-                    success = handlePollResult(context, body, "[HFC]", hfcStatus, toneGenerator)
-                }
-            } catch (e: Exception) { hfcStatus = "HFC: Fail" }
-        }
+            val code = conn.responseCode
+            hfcStatus = "HFC: $code"
 
-        // 2. Try Backend Proxy
-        if (!success && BuildConfig.IS_PAID) {
-            try {
-                val url = java.net.URL(proxyUrl)
-                val conn = url.openConnection() as java.net.HttpURLConnection
-                conn.connectTimeout = pollTimeout
-                conn.readTimeout = pollTimeout
-                conn.setRequestProperty("X-API-Key", BuildConfig.API_KEY)
-                
-                if (conn.responseCode == 200) {
-                    val body = conn.inputStream.bufferedReader().use { it.readText() }
-                    success = handlePollResult(context, body, "[Backend]", "OK", toneGenerator)
-                } else {
-                    hfcStatus += " | Backend: ${conn.responseCode}"
-                }
-            } catch (e: Exception) { hfcStatus += " | Backend: Fail" }
-        }
+            if (code == 200 || code == 204) {
+                val body = if (code == 200) conn.inputStream.bufferedReader().use { it.readText() } else ""
+                success = handlePollResult(context, body, "[HFC]", hfcStatus, toneGenerator)
+            }
+        } catch (e: Exception) { hfcStatus = "HFC: Fail" }
 
-        if (!success && !forceBackend) {
+        if (!success) {
             sharedPrefs.edit().putString("shield_last_log", "[$now] Shield Offline | $hfcStatus").apply()
         }
     }

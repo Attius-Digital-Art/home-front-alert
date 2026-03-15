@@ -66,11 +66,13 @@ class MainActivity : AppCompatActivity() {
         distanceCalculator = ZoneDistanceCalculator(this)
         toneGenerator = DynamicToneGenerator(this)
 
-        // Subscribe to Backend Broadcasts for Hybrid/Failover coverage
-        FirebaseMessaging.getInstance().subscribeToTopic("alerts")
-            .addOnCompleteListener { task ->
-                if (task.isSuccessful) android.util.Log.d("HomeFrontAlerts", "FCM: Subscribed to 'alerts' topic.")
-            }
+        // Subscribe to FCM alerts topic — Pro only (primary delivery path)
+        if (BuildConfig.IS_PAID) {
+            FirebaseMessaging.getInstance().subscribeToTopic("alerts")
+                .addOnCompleteListener { task ->
+                    if (task.isSuccessful) android.util.Log.d("HomeFrontAlerts", "FCM: Subscribed to 'alerts' topic.")
+                }
+        }
 
         performInitialSetupIfNeeded()
 
@@ -103,7 +105,7 @@ class MainActivity : AppCompatActivity() {
                 putFloat("alert_volume", 0.5f) // As agreed
                 putString("tracking_mode", LocationTrackingMode.GPS_LIVE.name)
                 putString("fixed_zone_he", AppLocationManager.DEFAULT_ZONE_HE)
-                putBoolean("shield_active", true) // Core feature: ON by default
+                putBoolean("shield_active", !BuildConfig.IS_PAID) // Pro: FCM (false) | Standard: Direct HFC (true)
                 putBoolean("initial_setup_v135", true)
                 putLong("dash_status_start_ms", System.currentTimeMillis())
                 apply()
