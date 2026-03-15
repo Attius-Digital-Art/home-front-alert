@@ -236,6 +236,13 @@ class AppLocationManager(private val context: Context) {
     }
 
     fun setUsingLiveGps(use: Boolean) {
+        if (!use) {
+            // Captured switch: Live -> Manual. Retain last known as hard manual.
+            val current = resolveCurrentLocation()
+            if (current.source == "GPS") {
+                setSavedZoneHe(current.zoneNameHe)
+            }
+        }
         setTrackingMode(if (use) LocationTrackingMode.GPS_LIVE else LocationTrackingMode.FIXED_ZONE)
     }
 
