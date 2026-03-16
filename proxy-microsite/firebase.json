@@ -1,5 +1,6 @@
 {
   "hosting": {
+    "site": "home-front-alert-hfc",
     "public": "public",
     "ignore": [
       "firebase.json",
