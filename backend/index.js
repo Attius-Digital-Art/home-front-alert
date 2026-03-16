@@ -78,6 +78,23 @@ app.get('/alerts/history', (req, res) => {
     res.json(lastDetectedAlert ? [lastDetectedAlert] : []);
 });
 
+// Test FCM endpoint — fires a synthetic alert to confirm end-to-end FCM delivery.
+// API-key protected. Use: curl -X POST -H 'X-API-Key: <key>' https://.../test-fcm
+app.post('/test-fcm', (req, res) => {
+    const apiKey = process.env.API_KEY || 'DEVELOPMENT_MODE_UNSET';
+    if (req.headers['x-api-key'] !== apiKey) {
+        return res.status(403).json({ error: 'Forbidden' });
+    }
+    const testAlert = {
+        id: 'TEST_' + Date.now(),
+        type: 'Test Alert / בדיקה',
+        cities: ['בדיקה — FCM Test']
+    };
+    console.log('🧪 Manual /test-fcm triggered — sending FCM now');
+    sendFCMAlert(testAlert);
+    res.json({ ok: true, alertId: testAlert.id, time: new Date().toISOString() });
+});
+
 
 
 const PORT = process.env.PORT || 8080;
