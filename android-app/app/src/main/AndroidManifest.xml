@@ -27,10 +27,6 @@
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <uses-permission android:name="android.permission.VIBRATE" />
 
-    <!-- Required to prompt user to exempt app from battery optimization -->
-    <!-- Without this, FCM data messages are silently blocked in Doze mode on most OEMs -->
-    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
-
     <application
         android:allowBackup="true"
         android:label="Home Front Alerts"
