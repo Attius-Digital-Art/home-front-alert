@@ -38,7 +38,9 @@ object StatusManager {
 
     fun updateLocation(context: Context, zoneHe: String, lat: Double, lng: Double) {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        
+
+        val prevZone = prefs.getString("current_home_zone", null)
+
         prefs.edit().apply {
             putString("current_home_zone", zoneHe)
             putString("last_known_lat", lat.toString())
@@ -47,9 +49,16 @@ object StatusManager {
             putLong("last_location_update_ms", System.currentTimeMillis())
             apply()
         }
-        
-        syncUiComponents(context)
+
+        // Re-evaluate threat status whenever zone changes — moving from a threatened zone
+        // to a safe zone (or vice versa) must immediately update the dashboard.
+        if (prevZone != zoneHe) {
+            recalculateStatus(context)  // calls updateStatus → syncUiComponents
+        } else {
+            syncUiComponents(context)
+        }
     }
+
 
     fun normalizeCity(city: String): String {
         return city.replace(Regex("[^\\u0590-\\u05FF0-9]"), "")

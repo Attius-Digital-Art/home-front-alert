@@ -65,6 +65,10 @@ class AppLocationManager(private val context: Context) {
     private enum class Strategy { BRUTAL, MOBILE, STATIONARY }
     private var activeStrategy: Strategy? = null
 
+    // Zone stability buffer — prevents flicker from unreliable network fixes
+    private var pendingZone: String? = null
+    private var pendingZoneCount: Int = 0
+
     private var isTracking = false
     private val looper = Looper.getMainLooper()
 
@@ -114,18 +118,57 @@ class AppLocationManager(private val context: Context) {
             speedKmh < 2 -> Strategy.STATIONARY    
             else -> Strategy.MOBILE
         }
-        
-        if (newStrategy != activeStrategy) {
-            applyStrategy(newStrategy)
+        if (newStrategy != activeStrategy) applyStrategy(newStrategy)
+
+        // 2. Plausibility gate: reject wild network jumps.
+        // If we have a committed location and the new fix is both inaccurate (>100m) AND
+        // implies a teleport (>50 km jump), it's a bad network reading — discard it.
+        val prev = sharedCachedLocation
+        if (prev != null && location.accuracy > 100f) {
+            val jumpKm = haversineKm(prev.lat, prev.lng, location.latitude, location.longitude)
+            if (jumpKm > 50.0) {
+                Log.w("HomeFrontAlerts", "REJECTED implausible fix: ${jumpKm.toInt()}km jump at ${location.accuracy}m accuracy from $providerLabel")
+                return
+            }
         }
 
-        // 2. Resolve to Zone
+        // 3. Resolve to Zone
         val zoneInfo = distanceCalculator.getClosestZoneNameAndDistance(location.latitude, location.longitude)
         if (zoneInfo != null) {
+            val newZone = zoneInfo.first
+            val committedZone = sharedCachedLocation?.zoneNameHe
+
+            // 4. Zone stability buffer.
+            // When accuracy is poor (>50m = BRUTAL/network mode), require 2 consecutive readings
+            // in the same zone before committing a zone change. High-quality fixes commit immediately.
+            if (newZone != committedZone) {
+                if (location.accuracy > 50f) {
+                    // Poor accuracy: buffer the change
+                    if (newZone == pendingZone) {
+                        pendingZoneCount++
+                    } else {
+                        pendingZone = newZone
+                        pendingZoneCount = 1
+                    }
+                    if (pendingZoneCount < 2) {
+                        Log.d("HomeFrontAlerts", "BUFFERING zone → $newZone (${pendingZoneCount}/2, acc=${location.accuracy}m)")
+                        return  // Wait for confirmation
+                    }
+                    Log.d("HomeFrontAlerts", "CONFIRMED zone → $newZone after buffering")
+                }
+                // Good accuracy or confirmed: reset buffer and commit
+                pendingZone = null
+                pendingZoneCount = 0
+            } else {
+                // Same zone — reading is consistent, reset any pending buffer
+                pendingZone = null
+                pendingZoneCount = 0
+            }
+
             val res = ResolvedLocation(
                 location.latitude, 
                 location.longitude, 
-                zoneInfo.first, 
+                newZone, 
                 false, 
                 "GPS", 
                 mode, 
@@ -137,6 +180,17 @@ class AppLocationManager(private val context: Context) {
             updateSessionCache(res)
             savePersistentLocation(res.lat, res.lng, res.zoneNameHe)
         }
+    }
+
+    /** Haversine distance in km between two GPS coordinates. */
+    private fun haversineKm(lat1: Double, lng1: Double, lat2: Double, lng2: Double): Double {
+        val R = 6371.0
+        val dLat = Math.toRadians(lat2 - lat1)
+        val dLng = Math.toRadians(lng2 - lng1)
+        val a = Math.sin(dLat / 2).let { it * it } +
+                Math.cos(Math.toRadians(lat1)) * Math.cos(Math.toRadians(lat2)) *
+                Math.sin(dLng / 2).let { it * it }
+        return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
     }
 
     @SuppressLint("MissingPermission")
