@@ -4,41 +4,82 @@
 [![Internal Testing](https://img.shields.io/badge/Play%20Store-Internal%20Testing-blue)](https://play.google.com/console)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-> **Real-time, distance-aware Home Front Command alerts for Android.**  
-> הוגדר לפי קרבה לאזור האירוע — לא רק התרעה, אלא מידת הדחיפות.
+> **Home Front Command alerts for Android — pitch and pattern tell you everything, eyes-free.**  
+> קצב הצליל ותדרו אומרים לך מה קורה — ללא צורך להסתכל על הטלפון.
 
 ---
 
 ## What Makes This Different
 
-Unlike traditional alert apps that provide the same sound for every alert, this app provides **Eyes-Free Situational Awareness** through intelligent sound patterns:
+Most alert apps play the same loud beep for every event, everywhere. KeshevAdom tells you *what* and *how close* through audio alone:
 
-- 🔊 **Sound Pattern Distinction** — Distinguish between near-zone emergencies and distant country-wide events through unique audio patterns without ever unlocking your phone.
-- 🚗 **Car/Pocket Awareness** — Designed for use while driving or when the phone is in your pocket; the sound itself tells you the level of urgency and location context.
-- 🌍 **Full Context, Low Intrusion** — Stay informed of all alerts across Israel with subtle distinctions, so you have full situational awareness without the false-urgency fatigue of generic alarms.
-- 📡 **Hybrid Polling** — Bypasses FCM notification lag during high-volume events by using a direct polling fallback, ensuring you hear the pattern the moment the siren is triggered.
-- 🌍 **Hebrew & English** — Full bilingual support in the UI.
-- 💰 **Two Modes** — Free (direct polling, no backend) and Pro (Firebase push, lower battery, instant delivery).
+- 🔊 **Pitch = Distance** — Alert tone pitch is calculated from your GPS position to the alerted zones. Low pitch means it's near you; high pitch means it's far away. Instantly intuitive while driving or in a noisy environment.
+- 🎵 **Pattern = Threat Type** — Three distinct audio patterns: **URGENT** (rockets / UAVs / infiltrators), **CAUTION** (early warning / approximate), **CALM** (all-clear). You know what's happening without looking.
+- 🚗 **Designed for Eyes-Free Use** — Ideal while driving, in a meeting, or with the phone in your pocket. The sound conveys urgency and distance context in under a second.
+- 📍 **GPS-Aware from First Second** — Fused Location Provider with a saved fallback zone. Even without live GPS, you always hear a contextually-relevant tone.
+- 🔕 **Silent Delivery, Loud Alert** — Uses Android's `STREAM_ALARM` channel directly. No notification badges, no shade clutter. Just sound.
+- 🌍 **Hebrew & English** — Full bilingual support in UI and zone names.
+- ⚡ **Two Delivery Modes** — Standard (direct HFC polling, no backend dependency) and Pro (instant Firebase push, no polling battery drain).
+
+---
+
+## Alert Audio Logic
+
+| Alert Type | Meaning | Pitch | Pattern |
+|---|---|---|---|
+| `URGENT` | Rocket / UAV / Infiltrator | Distance-mapped (300–1500 Hz) | Rapid pulsing tones per zone |
+| `CAUTION` | Early warning / approximate | Fixed mid-range | Slower advisory pattern |
+| `CALM` | All-clear / incident over | Fixed low | Single resolving tone |
+
+Frequencies: 300 Hz = 0 km away, 1500 Hz = 500 km away. Linear interpolation per zone.
+
+---
+
+## Two Delivery Modes
+
+### Standard — Direct HFC
+- Polls Israel Home Front Command API directly from the device, every 2 seconds
+- Runs as a persistent Android foreground service (survives screen-off, doze)
+- Restarts automatically after device reboot
+- No backend or internet infrastructure dependency beyond the HFC API
+- Default for Standard flavor
+
+### Pro — Instant FCM
+- Backend (Cloud Run, always-on) polls HFC and dispatches Firebase push the moment an alert is detected
+- No continuous polling on the device — battery-neutral while waiting
+- Instant delivery, no polling cycle delay
+- Default for Pro flavor
+- Switchable to Direct HFC mode from Settings → Advanced if needed
 
 ---
 
 ## Architecture
 
 ```
-android-app/          # Android Kotlin app (com.attius.homefrontalert)
-│
-├── MainActivity.kt           # Dashboard & status display
-├── LocalPollingService.kt    # Direct HFC API polling (Free tier)
-├── MyFirebaseMessagingService.kt  # FCM push handler (Pro tier)
-├── DynamicToneGenerator.kt   # Distance-based audio engine
-├── ZoneDistanceCalculator.kt # GPS → alert zone distance logic
-├── SettingsActivity.kt       # GPS, volume, language, advanced
-├── TOSActivity.kt            # Terms of Service (first launch)
-└── AppLocationManager.kt     # Fused Location Provider wrapper
+android-app/                        # Android Kotlin app (com.attius.homefrontalert)
+├── MainActivity.kt                 # Dashboard & alert status display
+├── LocalPollingService.kt          # Direct HFC API polling (Standard mode)
+├── MyFirebaseMessagingService.kt   # FCM push handler (Pro mode)
+├── BootReceiver.kt                 # Restarts LocalPollingService after device reboot
+├── DynamicToneGenerator.kt         # Synthesizes distance-mapped audio tones (44.1kHz)
+├── ZoneDistanceCalculator.kt       # GPS → Haversine distance to alerted zones
+├── AlertStyleRegistry.kt           # Maps HFC category strings → URGENT/CAUTION/CALM
+├── StatusManager.kt                # Stateful threat map (30-min zone persistence)
+├── SettingsActivity.kt             # GPS, volume, mode selection, diagnostics
+├── AppLocationManager.kt           # Fused Location Provider + saved fallback zone
+└── TOSActivity.kt                  # Terms of Service (first launch)
 
-backend/              # Node.js Cloud Run backend (Pro tier)
-└── index.js          # HFC relay + Firebase push trigger
+backend/                            # Node.js — Google Cloud Run (Pro tier)
+└── index.js                        # HFC relay: polls API, dispatches FCM to 'alerts' topic
+
+proxy-microsite/                    # Firebase Hosting config
+└── firebase.json                   # Routes *.web.app → Cloud Run backend
 ```
+
+**Infrastructure (GCP project: `home-front-alert-hfc`):**
+- Cloud Run: `homefront-backend`, region `me-west1`, `min-instances=1`, no CPU throttling
+- Firebase Hosting: `home-front-alert-hfc.web.app` → `homefront-backend`
+- Firebase Cloud Messaging: topic `alerts`, project `home-front-alert-hfc`
 
 ---
 
@@ -47,40 +88,41 @@ backend/              # Node.js Cloud Run backend (Pro tier)
 ### Prerequisites
 - Android Studio Meerkat or newer
 - JDK 17
-- `google-services.json` in `android-app/app/` (get from Firebase Console)
+- `google-services.json` in `android-app/app/` — download from [Firebase Console → home-front-alert-hfc](https://console.firebase.google.com/project/home-front-alert-hfc/settings/general/)
 
-### Debug Build
+### Debug Builds
 ```bash
 cd android-app
-./gradlew assembleFreeDebug
+./gradlew assembleStandardDebug   # Standard flavor (Direct HFC)
+./gradlew assembleProDebug        # Pro flavor (FCM)
 ```
 
-### Release Bundle (for Play Store)
+### Release Builds
 ```bash
 cd android-app
-./gradlew bundleFreeRelease
+./gradlew assembleStandardRelease
+./gradlew assembleProRelease
 ```
 > Requires `release.jks` in `android-app/` — **never committed to git**.
 
----
-
-## DevOps / CI-CD
-
-Pushing a version tag automatically builds and deploys to **Internal Testing**:
-
+### Backend Deploy
 ```bash
-git tag v1.3.4
-git push origin v1.3.4
+cd backend
+gcloud run deploy homefront-backend \
+  --source . \
+  --region=me-west1 \
+  --project=home-front-alert-hfc \
+  --allow-unauthenticated \
+  --min-instances=1 \
+  --no-cpu-throttling
 ```
 
-Required GitHub Secrets:
-| Secret | Description |
-|---|---|
-| `KEYSTORE_BASE64` | Base64-encoded `release.jks` |
-| `KEYSTORE_PASSWORD` | Keystore password |
-| `KEY_ALIAS` | Key alias (`homefront`) |
-| `KEY_PASSWORD` | Key password |
-| `PLAY_SERVICE_ACCOUNT_JSON` | GCP service account with Play API access |
+### Firebase Hosting Deploy
+```bash
+cd proxy-microsite
+firebase deploy --only hosting --project=home-front-alert-hfc
+```
+> Requires Firebase CLI login as `homefrontcommand@attius.com`.
 
 ---
 
@@ -98,11 +140,11 @@ Required GitHub Secrets:
 
 ## Security Notes
 
-- ❌ `release.jks` is **never** committed. Store securely (e.g., 1Password + GitHub Secret).
-- ❌ `google-services.json` checked in contains **no private secrets** (safe Firebase config only).
+- ❌ `release.jks` is **never** committed. Store in 1Password + GitHub Secret.
+- ✅ `google-services.json` contains no private secrets (public Firebase config only).
+- ✅ Backend API key required for `/test-fcm` endpoint.
 - ✅ ProGuard/R8 minification active on release builds.
-- ✅ Org-level IAM policy on GCP protects backend resources.
-- ✅ Budget hard-cap (₪50/month) with auto-shutdown via Pub/Sub.
+- ✅ Cloud Run IAM: unauthenticated read only; admin endpoints require `X-API-Key` header.
 
 ---
 
