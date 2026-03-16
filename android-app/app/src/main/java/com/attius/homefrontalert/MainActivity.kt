@@ -6,9 +6,13 @@ import android.content.Intent
 import android.content.res.ColorStateList
 import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
+import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.PowerManager
+import android.provider.Settings
 import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.TextView
@@ -97,6 +101,12 @@ class MainActivity : AppCompatActivity() {
 
         refreshDashboardState()
         setVersionBadge()
+
+        // For Pro FCM mode: request battery optimization exemption.
+        // Without this, Android silently drops high-priority FCM data messages on most OEMs.
+        if (BuildConfig.IS_PAID && !sharedPrefs.getBoolean("shield_active", false)) {
+            requestBatteryOptimizationExemption()
+        }
     }
 
     private fun performInitialSetupIfNeeded() {
@@ -113,8 +123,29 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun requestBatteryOptimizationExemption() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+            if (!pm.isIgnoringBatteryOptimizations(packageName)) {
+                androidx.appcompat.app.AlertDialog.Builder(this)
+                    .setTitle("Battery Optimization")
+                    .setMessage("This app uses instant FCM alerts. Please disable battery optimization so alerts are never silently delayed.")
+                    .setPositiveButton("Fix Now") { _, _ ->
+                        val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                            data = Uri.parse("package:$packageName")
+                        }
+                        startActivity(intent)
+                    }
+                    .setNegativeButton("Later", null)
+                    .show()
+            }
+        }
+    }
+
+
     private fun bindViews() {
         tvDashStatus = findViewById(R.id.tvDashStatus)
+
         tvDashTimer = findViewById(R.id.tvDashTimer)
         tvLocationBadge = findViewById(R.id.tvLocationBadge)
         tvLocationZone = findViewById(R.id.tvLocationZone)
