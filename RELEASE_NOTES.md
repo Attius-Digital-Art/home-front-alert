@@ -1,4 +1,26 @@
-# Release Notes — Home Front Alert
+# Release Notes — KeshevAdom
+
+## v1.6.0 (2026-03-16) — FCM Fix + Infrastructure Consolidation
+
+### Critical Fix
+- **FCM delivery broken since initial setup** — the Android app was subscribed to Firebase project `home-front-alert` (old) while the backend was sending FCM to `home-front-alert-hfc` (new). Two different projects, messages never arrived. Fixed by registering the Android app in the correct Firebase project and updating `google-services.json`.
+
+### New
+- **Boot receiver** — `LocalPollingService` now restarts automatically after device reboot for Standard users and Pro users in Direct HFC mode
+- **FCM token refresh** — `onNewToken` now re-subscribes to the `alerts` topic when Android rotates the FCM token (reinstall, token expiry), preventing silent delivery failures
+- **`/test-fcm` endpoint** — API-key protected backend endpoint to manually trigger an FCM dispatch for end-to-end diagnostics
+
+### Fixed
+- Removed old `home-front-backend` Cloud Run service (Container type, scaled-to-zero, superseded by `homefront-backend`)
+- Firebase Hosting rewrite corrected to `homefront-backend` (Cloud Build source, always-on with `min-instances=1`)
+- Settings screen: removed duplicate mode toggle, unified diagnostics card, consistent FCM/Direct HFC mode switching
+- `performInitialSetupIfNeeded` now correctly defaults Pro to FCM mode and Standard to Direct HFC
+
+### Infrastructure
+- Firebase project consolidated: everything now under `home-front-alert-hfc` / `homefrontcommand@attius.com`
+- `home-front-alert` Firebase project (old, orphaned) to be archived
+
+---
 
 ## v1.3.3 (2026-03-13) — Internal Testing Launch
 - Targets Android 15 (API 35) — Play Store compliant
@@ -18,7 +40,6 @@
 - Settings and Help screens localized
 
 ## v1.3.0 (earlier)
-- Dashboard redesign with NO ALERTS / ALERT states  
-- Hybrid polling mode (advanced/opt-in)
-- Distance-based audio urgency system
+- Dashboard redesign with NO ALERTS / ALERT states
+- Distance-based audio urgency system (pitch-mapped, 300–1500 Hz)
 - PreferenceMigration for safe upgrades
