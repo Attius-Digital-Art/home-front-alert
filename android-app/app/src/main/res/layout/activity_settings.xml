@@ -329,7 +329,19 @@
                 android:orientation="vertical"
                 android:visibility="gone">
 
-                <!-- ── SMART HOME INTEGRATION (EXPERIMENTAL) ── -->
+                <!-- ── DEVELOPER OPTIONS HEADER ── -->
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Developer Settings (Experimental)"
+                    android:textColor="#FFAC33"
+                    android:textStyle="bold"
+                    android:textSize="12sp"
+                    android:gravity="center"
+                    android:layout_marginTop="8dp"
+                    android:layout_marginBottom="16dp" />
+
+                <!-- ── MI SMART BULB INTEGRATION (EXPERIMENTAL) ── -->
                 <androidx.cardview.widget.CardView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
@@ -352,7 +364,7 @@
                                 android:layout_width="0dp"
                                 android:layout_height="wrap_content"
                                 android:layout_weight="1"
-                                android:text="Smart Home / Yeelight™ (EXPERIMENTAL)"
+                                android:text="Mi Smart Bulb Integration"
                                 android:textStyle="bold"
                                 android:textColor="#FFFFFF"
                                 android:textSize="14sp" />
