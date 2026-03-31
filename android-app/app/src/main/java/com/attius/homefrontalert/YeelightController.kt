@@ -59,110 +59,109 @@ object YeelightController {
 
     // ── Command Dispatcher ───────────────────────────────────────────────────
 
-    private fun sendCommand(ip: String, token: String?, commandStr: String) {
-        if (!token.isNullOrBlank() && token.length == 32) {
-            // Xiaomi Encrypted Miio Protocol (MJDPL01YL logic)
-            sendMiioCommand(ip, token, commandStr)
-        } else {
-            // Standard Unencrypted Yeelight Protocol
-            sendTcpCommand(ip, commandStr)
+    private fun sendCommand(ip: String, token: String?, vararg commandStrs: String) {
+        thread {
+            for (commandStr in commandStrs) {
+                if (!token.isNullOrBlank() && token.length == 32) {
+                    sendMiioCommandSync(ip, token, commandStr)
+                } else {
+                    sendTcpCommandSync(ip, commandStr)
+                }
+                Thread.sleep(150) // 150ms spacer allows bulb CPU to process JSON before next packet hits
+            }
         }
     }
 
     // ── Standard TCP JSON Command ──────────────────────────────────────────────
 
-    private fun sendTcpCommand(ip: String, commandStr: String) {
-        thread {
-            var socket: Socket? = null
-            try {
-                Log.d(TAG, "Sending Unencrypted TCP to $ip: $commandStr")
-                socket = Socket(ip, TCP_PORT)
-                socket.soTimeout = 2000
-                val out = BufferedWriter(OutputStreamWriter(socket.getOutputStream()))
-                out.write(commandStr + "\r\n")
-                out.flush()
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed TCP command to $ip", e)
-            } finally {
-                try { socket?.close() } catch (e: Exception) {}
-            }
+    private fun sendTcpCommandSync(ip: String, commandStr: String) {
+        var socket: Socket? = null
+        try {
+            Log.d(TAG, "Sending Unencrypted TCP to $ip: $commandStr")
+            socket = Socket(ip, TCP_PORT)
+            socket.soTimeout = 2000
+            val out = BufferedWriter(OutputStreamWriter(socket.getOutputStream()))
+            out.write(commandStr + "\r\n")
+            out.flush()
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed TCP command to $ip", e)
+        } finally {
+            try { socket?.close() } catch (e: Exception) {}
         }
     }
 
     // ── Encrypted Miio UDP Command (Crypto Logic) ────────────────────────────
 
-    private fun sendMiioCommand(ip: String, tokenHex: String, commandStr: String) {
-        thread {
-            try {
-                Log.d(TAG, "Sending Encrypted UDP to $ip: $commandStr")
-                val token = hexStringToByteArray(tokenHex)
-                val md5 = MessageDigest.getInstance("MD5")
-                val key = md5.digest(token)
-                md5.reset()
-                
-                val ivInput = ByteArray(key.size + token.size)
-                System.arraycopy(key, 0, ivInput, 0, key.size)
-                System.arraycopy(token, 0, ivInput, key.size, token.size)
-                val iv = md5.digest(ivInput)
-                md5.reset()
+    private fun sendMiioCommandSync(ip: String, tokenHex: String, commandStr: String) {
+        try {
+            Log.d(TAG, "Sending Encrypted UDP to $ip: $commandStr")
+            val token = hexStringToByteArray(tokenHex)
+            val md5 = MessageDigest.getInstance("MD5")
+            val key = md5.digest(token)
+            md5.reset()
+            
+            val ivInput = ByteArray(key.size + token.size)
+            System.arraycopy(key, 0, ivInput, 0, key.size)
+            System.arraycopy(token, 0, ivInput, key.size, token.size)
+            val iv = md5.digest(ivInput)
+            md5.reset()
 
-                val socket = MulticastSocket()
-                socket.soTimeout = 3000
-                val address = InetAddress.getByName(ip)
+            val socket = MulticastSocket()
+            socket.soTimeout = 3000
+            val address = InetAddress.getByName(ip)
 
-                // Handshake
-                val hello = hexStringToByteArray("21310020ffffffffffffffffffffffffffffffffffffffffffffffffffffffff")
-                socket.send(DatagramPacket(hello, hello.size, address, MIIO_UDP_PORT))
+            // Handshake
+            val hello = hexStringToByteArray("21310020ffffffffffffffffffffffffffffffffffffffffffffffffffffffff")
+            socket.send(DatagramPacket(hello, hello.size, address, MIIO_UDP_PORT))
 
-                val receiveData = ByteArray(1024)
-                val receivePacket = DatagramPacket(receiveData, receiveData.size)
-                socket.receive(receivePacket)
+            val receiveData = ByteArray(1024)
+            val receivePacket = DatagramPacket(receiveData, receiveData.size)
+            socket.receive(receivePacket)
 
-                // Extract Details
-                val resp = receivePacket.data
-                val deviceId = ByteArray(4)
-                System.arraycopy(resp, 8, deviceId, 0, 4)
-                
-                val stampBuf = ByteBuffer.allocate(4)
-                stampBuf.put(resp, 12, 4)
-                val stamp = stampBuf.getInt(0)
+            // Extract Details
+            val resp = receivePacket.data
+            val deviceId = ByteArray(4)
+            System.arraycopy(resp, 8, deviceId, 0, 4)
+            
+            val stampBuf = ByteBuffer.allocate(4)
+            stampBuf.put(resp, 12, 4)
+            val stamp = stampBuf.getInt(0)
 
-                // Encrypt Payload
-                val cipher = Cipher.getInstance("AES/CBC/PKCS5Padding")
-                cipher.init(Cipher.ENCRYPT_MODE, SecretKeySpec(key, "AES"), IvParameterSpec(iv))
-                val encryptedPayload = cipher.doFinal(commandStr.toByteArray())
+            // Encrypt Payload
+            val cipher = Cipher.getInstance("AES/CBC/PKCS5Padding")
+            cipher.init(Cipher.ENCRYPT_MODE, SecretKeySpec(key, "AES"), IvParameterSpec(iv))
+            val encryptedPayload = cipher.doFinal(commandStr.toByteArray())
 
-                // Build Final Packet Header
-                val packetLen = 32 + encryptedPayload.size
-                val header = ByteBuffer.allocate(32)
-                header.put(0x21).put(0x31)
-                header.putShort(packetLen.toShort())
-                header.putInt(0) // Unknown
-                header.put(deviceId)
-                header.putInt(stamp + 1) // Advance stamp
-                header.position(0)
-                val headerBytes = ByteArray(16)
-                header.get(headerBytes)
+            // Build Final Packet Header
+            val packetLen = 32 + encryptedPayload.size
+            val header = ByteBuffer.allocate(32)
+            header.put(0x21).put(0x31)
+            header.putShort(packetLen.toShort())
+            header.putInt(0) // Unknown
+            header.put(deviceId)
+            header.putInt(stamp + 1) // Advance stamp
+            header.position(0)
+            val headerBytes = ByteArray(16)
+            header.get(headerBytes)
 
-                // Calculate Checksum: MD5(Header + Token + EncryptedPayload)
-                md5.update(headerBytes)
-                md5.update(token)
-                md5.update(encryptedPayload)
-                val checksum = md5.digest()
+            // Calculate Checksum: MD5(Header + Token + EncryptedPayload)
+            md5.update(headerBytes)
+            md5.update(token)
+            md5.update(encryptedPayload)
+            val checksum = md5.digest()
 
-                // Final Assembly: Header + Checksum + EncryptedPayload
-                val finalPacket = ByteBuffer.allocate(packetLen)
-                finalPacket.put(headerBytes)
-                finalPacket.put(checksum)
-                finalPacket.put(encryptedPayload)
+            // Final Assembly: Header + Checksum + EncryptedPayload
+            val finalPacket = ByteBuffer.allocate(packetLen)
+            finalPacket.put(headerBytes)
+            finalPacket.put(checksum)
+            finalPacket.put(encryptedPayload)
 
-                val payloadBytes = finalPacket.array()
-                socket.send(DatagramPacket(payloadBytes, payloadBytes.size, address, MIIO_UDP_PORT))
-                socket.close()
+            val payloadBytes = finalPacket.array()
+            socket.send(DatagramPacket(payloadBytes, payloadBytes.size, address, MIIO_UDP_PORT))
+            socket.close()
 
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed Miio Encrypted UDP command to $ip", e)
-            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed Miio Encrypted UDP command to $ip", e)
         }
     }
 
@@ -185,7 +184,17 @@ object YeelightController {
         val token = prefs.getString("yeelight_token", null)?.trim()
         
         if (!ip.isNullOrBlank()) {
-            sendCommand(ip, token, buildJsonCommand(4, "set_power", JSONArray().put("off").put("smooth").put(1500)))
+            val isAlreadyOff = prefs.getBoolean("yeelight_is_off", false)
+            if (isAlreadyOff) return
+            
+            val allClearFlow = "5000, 1, 65280, 100, 30000, 2, 4000, 20"
+            sendCommand(ip, token, 
+                buildJsonCommand(1, "set_power", JSONArray().put("on").put("smooth").put(1000)),
+                buildJsonCommand(2, "start_cf", JSONArray().put(1).put(1).put(allClearFlow)),
+                buildJsonCommand(3, "cron_add", JSONArray().put(0).put(10))
+            )
+            
+            prefs.edit().putBoolean("yeelight_is_off", true).apply()
         }
     }
 
@@ -199,46 +208,37 @@ object YeelightController {
             return
         }
 
+        prefs.edit().putBoolean("yeelight_is_off", false).apply()
         val token = prefs.getString("yeelight_token", null)?.trim()
 
         when (type) {
             AlertType.URGENT -> {
-                // Instantly turn ON
-                sendCommand(ip, token, buildJsonCommand(1, "set_power", JSONArray().put("on").put("sudden").put(0)))
-                
-                // Pure red (16711680) is notoriously dim on Xiaomi because it only uses 1 of the 4 LED chips.
-                // We use a high-visibility Scarlet/Orange-Red (0xFF3300 = 16724736) to activate the Green diode heavily,
-                // drastically increasing overall lumen output while still appearing decisively Red to the human eye in the dark.
                 val brightRed = 16724736
                 val redPulse = "1000, 1, $brightRed, 100, 1000, 1, $brightRed, 60"
-                sendCommand(ip, token, buildJsonCommand(2, "start_cf", JSONArray().put(30).put(1).put(redPulse)))
+                sendCommand(ip, token, 
+                    buildJsonCommand(1, "set_power", JSONArray().put("on").put("sudden").put(0)),
+                    buildJsonCommand(2, "start_cf", JSONArray().put(30).put(1).put(redPulse)),
+                    buildJsonCommand(3, "cron_add", JSONArray().put(0).put(45))
+                )
             }
             AlertType.CAUTION -> {
                 if (isLocal) {
-                    // CAUTION LOCAL: Smooth transfer to orange, flash twice, stay in orange
-                    sendCommand(ip, token, buildJsonCommand(1, "set_power", JSONArray().put("on").put("sudden").put(0)))
-                    
                     val doubleFlashOrange = "500, 1, 16753920, 100, 500, 1, 16753920, 10"
-                    sendCommand(ip, token, buildJsonCommand(2, "start_cf", JSONArray().put(2).put(1).put(doubleFlashOrange)))
+                    sendCommand(ip, token, 
+                        buildJsonCommand(1, "set_power", JSONArray().put("on").put("sudden").put(0)),
+                        buildJsonCommand(2, "start_cf", JSONArray().put(2).put(1).put(doubleFlashOrange)),
+                        buildJsonCommand(3, "cron_add", JSONArray().put(0).put(45))
+                    )
                 } else {
-                    // REMOTE ALERT: Keep it yellow/warm white (3500K) at 50%
-                    sendCommand(ip, token, buildJsonCommand(1, "set_power", JSONArray().put("on").put("smooth").put(1000)))
-                    sendCommand(ip, token, buildJsonCommand(2, "set_scene", JSONArray().put("ct").put(3500).put(50)))
+                    sendCommand(ip, token, 
+                        buildJsonCommand(1, "set_power", JSONArray().put("on").put("smooth").put(1000)),
+                        buildJsonCommand(2, "set_scene", JSONArray().put("ct").put(3500).put(50)),
+                        buildJsonCommand(3, "cron_add", JSONArray().put(0).put(45))
+                    )
                 }
             }
             AlertType.CALM -> {
-                if (isLocal) {
-                    // Xiaomi hardware caps a single flow step duration to roughly ~30 seconds (30000ms), which is why
-                    // a 10-minute fade truncates hardware-side and crashes out.
-                    // Instead: 5s Green, then extremely slow 30-Second max hardware fade to Warm White, and stay there.
-                    sendCommand(ip, token, buildJsonCommand(1, "set_power", JSONArray().put("on").put("smooth").put(1000)))
-                    
-                    val allClearFlow = "5000, 1, 65280, 100, 30000, 2, 4000, 20"
-                    sendCommand(ip, token, buildJsonCommand(2, "start_cf", JSONArray().put(1).put(1).put(allClearFlow)))
-                    
-                    // Then, we issue a native hardware sleep-timer. The bulb will autonomously kill its own power after 10 minutes!
-                    sendCommand(ip, token, buildJsonCommand(3, "cron_add", JSONArray().put(0).put(10)))
-                }
+                // Handled intentionally natively via Status Dashboard dropping to GREEN and firing triggerOff() !
             }
         }
     }
