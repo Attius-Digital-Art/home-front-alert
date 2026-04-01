@@ -364,7 +364,7 @@
                                 android:layout_width="0dp"
                                 android:layout_height="wrap_content"
                                 android:layout_weight="1"
-                                android:text="Mi Smart Bulb Integration"
+                                android:text="@string/settings_bulb_title"
                                 android:textStyle="bold"
                                 android:textColor="#FFFFFF"
                                 android:textSize="14sp" />
@@ -377,7 +377,7 @@
                         <TextView
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:text="Flashes local network Mi/Yeelight bulbs synchronously during alerts. Requires 'LAN Control' enabled in Yeelight app."
+                            android:text="@string/settings_bulb_desc"
                             android:textColor="#808080"
                             android:textSize="11sp"
                             android:layout_marginBottom="12dp" />
@@ -392,7 +392,7 @@
                                 android:layout_width="0dp"
                                 android:layout_height="wrap_content"
                                 android:layout_weight="1"
-                                android:hint="Bulb IP (e.g. 192.168.1.15)"
+                                android:hint="@string/settings_bulb_ip_hint"
                                 android:inputType="textUri"
                                 android:textColor="#FFFFFF"
                                 android:textColorHint="#606060"
@@ -404,7 +404,7 @@
                                 android:layout_height="wrap_content"
                                 android:layout_marginStart="8dp"
                                 android:textSize="10sp"
-                                android:text="Auto Discover"
+                                android:text="@string/settings_bulb_discover"
                                 android:backgroundTint="#2196F3" />
                         </LinearLayout>
 
@@ -413,7 +413,7 @@
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
                             android:layout_marginTop="4dp"
-                            android:hint="Xiaomi Crypto Token (Optional)"
+                            android:hint="@string/settings_bulb_token_hint"
                             android:inputType="textVisiblePassword"
                             android:textColor="#FFFFFF"
                             android:textColorHint="#606060"
