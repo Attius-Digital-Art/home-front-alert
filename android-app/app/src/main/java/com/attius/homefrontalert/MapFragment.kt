@@ -155,7 +155,6 @@ class MapFragment : Fragment() {
                 Log.e(TAG, "WebView render process gone (crashed=${detail?.didCrash()}), recreating")
                 pageReady = false
                 WebStorage.getInstance().deleteAllData()
-                view?.destroy()
                 activity?.recreate()
                 return true
             }
