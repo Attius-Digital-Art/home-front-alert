@@ -13,6 +13,8 @@ import android.view.ViewGroup
 import android.webkit.WebChromeClient
 import android.webkit.WebSettings
 import android.webkit.WebView
+import android.webkit.RenderProcessGoneDetail
+import android.webkit.WebStorage
 import android.webkit.WebViewClient
 import androidx.fragment.app.Fragment
 import androidx.localbroadcastmanager.content.LocalBroadcastManager
@@ -68,9 +70,15 @@ class MapFragment : Fragment() {
             setupWebView()
         } catch (e: Exception) {
             Log.e(TAG, "WebView init failed, clearing WebView data and retrying", e)
-            mapWebView.clearCache(true)
-            mapWebView.clearHistory()
-            setupWebView()
+            try {
+                WebStorage.getInstance().deleteAllData()
+                mapWebView.clearCache(true)
+                mapWebView.clearHistory()
+                setupWebView()
+            } catch (retryEx: Exception) {
+                Log.e(TAG, "WebView retry also failed, showing error state", retryEx)
+                mapWebView.visibility = View.GONE
+            }
         }
         return root
     }
@@ -99,7 +107,7 @@ class MapFragment : Fragment() {
                 view?.evaluateJavascript("if(window.setAppLanguage) window.setAppLanguage(${JSONObject.quote(lang)});", null)
 
                 // Inject user zone
-                val prefs = requireContext().getSharedPreferences("HomeFrontAlertsPrefs", Context.MODE_PRIVATE)
+                val prefs = requireContext().getSharedPreferences(StatusManager.PREFS_NAME, Context.MODE_PRIVATE)
                 val userCity = prefs.getString("selected_area", null)
                 if (!userCity.isNullOrEmpty()) {
                     view?.evaluateJavascript("if(window.setUserZone) window.setUserZone(${JSONObject.quote(userCity)});", null)
@@ -142,6 +150,15 @@ class MapFragment : Fragment() {
                 view: WebView?,
                 request: android.webkit.WebResourceRequest?
             ): Boolean = true
+
+            override fun onRenderProcessGone(view: WebView?, detail: RenderProcessGoneDetail?): Boolean {
+                Log.e(TAG, "WebView render process gone (crashed=${detail?.didCrash()}), recreating")
+                pageReady = false
+                WebStorage.getInstance().deleteAllData()
+                view?.destroy()
+                activity?.recreate()
+                return true
+            }
         }
 
         mapWebView.loadUrl(LOCAL_MAP_URL)
@@ -154,7 +171,7 @@ class MapFragment : Fragment() {
     private fun injectThreatData() {
         if (!pageReady || !::mapWebView.isInitialized) return
         val ctx = context ?: return
-        val prefs = ctx.getSharedPreferences("HomeFrontAlertsPrefs", Context.MODE_PRIVATE)
+        val prefs = ctx.getSharedPreferences(StatusManager.PREFS_NAME, Context.MODE_PRIVATE)
         val threatMap = prefs.getString("active_threat_map", "{}") ?: "{}"
         val status = StatusManager.getCurrentStatusString(ctx)
         val threats = try {
