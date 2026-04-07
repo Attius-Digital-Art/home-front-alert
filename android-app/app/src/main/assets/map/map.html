@@ -655,7 +655,8 @@ function renderFromThreatMap(threats, status, popAtRisk) {
     const delay = Math.max(0, RECENT_ZONE_MS - (now - latestT)) + 100;
     recentExpireTimer = setTimeout(() => {
       recentExpireTimer = null;
-      map.getSource('recent-src').setData({ type: 'FeatureCollection', features: [] });
+      const src = map.getSource('recent-src');
+      if (src) src.setData({ type: 'FeatureCollection', features: [] });
     }, delay);
   }
 
