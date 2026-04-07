@@ -616,7 +616,7 @@ object StatusManager {
                     threats.put(normZone, obj)
                 }
             }
-            prefs.edit().putString("active_threat_map", threats.toString()).commit()
+            prefs.edit().putString("active_threat_map", threats.toString()).apply()
         }
 
         val newCitiesForAudio = cities.filter { city ->

@@ -64,7 +64,14 @@ class MapFragment : Fragment() {
         val root = inflater.inflate(R.layout.fragment_map, container, false)
         mapWebView = root.findViewById(R.id.mapWebView)
         locationManager = AppLocationManager.getInstance(requireContext())
-        setupWebView()
+        try {
+            setupWebView()
+        } catch (e: Exception) {
+            Log.e(TAG, "WebView init failed, clearing WebView data and retrying", e)
+            mapWebView.clearCache(true)
+            mapWebView.clearHistory()
+            setupWebView()
+        }
         return root
     }
 
@@ -72,7 +79,7 @@ class MapFragment : Fragment() {
     private fun setupWebView() {
         val settings = mapWebView.settings
         settings.javaScriptEnabled = true
-        settings.domStorageEnabled = true
+        settings.domStorageEnabled = false
         settings.cacheMode = WebSettings.LOAD_DEFAULT
         settings.allowFileAccess = true
         mapWebView.webChromeClient = WebChromeClient()
@@ -150,7 +157,13 @@ class MapFragment : Fragment() {
         val prefs = ctx.getSharedPreferences("HomeFrontAlertsPrefs", Context.MODE_PRIVATE)
         val threatMap = prefs.getString("active_threat_map", "{}") ?: "{}"
         val status = StatusManager.getCurrentStatusString(ctx)
-        val threats = JSONObject(threatMap)
+        val threats = try {
+            JSONObject(threatMap)
+        } catch (e: Exception) {
+            Log.e(TAG, "Corrupt active_threat_map, resetting", e)
+            prefs.edit().putString("active_threat_map", "{}").apply()
+            JSONObject()
+        }
         val popData = zoneCalculator.getPopulationAtRisk(threats)
         val byTypeJson = JSONObject()
         popData.byType.forEach { (k, v) -> byTypeJson.put(k, v) }
